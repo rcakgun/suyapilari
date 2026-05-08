@@ -102,10 +102,6 @@ export default function App() {
     const auth = getAuth();
 
     try {
-      const q = query(collection(db, "users"), where("email", "==", email));
-      const snapshot = await getDocs(q);
-      if (!snapshot.empty) return alert("Bu e-posta adresi ile zaten bir başvuru mevcut!");
-
       const photoFile = fd.get('kimlikFoto');
       const reader = new FileReader();
       reader.onloadend = async () => {
@@ -131,6 +127,7 @@ export default function App() {
       if (photoFile) reader.readAsDataURL(photoFile);
     } catch (error) { 
       if(error.code === 'auth/weak-password') alert("Şifre en az 6 karakter olmalıdır.");
+      else if(error.code === 'auth/email-already-in-use') alert("Bu e-posta adresi ile zaten bir başvuru mevcut!");
       else alert("Hata: " + error.message); 
     }
   };
