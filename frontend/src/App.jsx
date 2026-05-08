@@ -15,6 +15,38 @@ const BOZULMA_DURUMLARI = ['İyi', 'Orta', 'Kötü'];
 const MALZEME_TURLERI = ['Taş', 'Tuğla', 'Ahşap', 'Mermer', 'Metal', 'Beton', 'Harç'];
 const BOZULMA_TURLERI = ['Çatlak', 'Kırık', 'Eksilme', 'Bitkilenme', 'Renk Değişimi', 'Kirlenme', 'Aşınma'];
 
+// --- GÜVENLİK VE PERFORMANS FONKSİYONLARI ---
+const hashPassword = async (password) => {
+  const msgBuffer = new TextEncoder().encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+const compressImage = (file) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 800; const MAX_HEIGHT = 800;
+        let width = img.width; let height = img.height;
+
+        if (width > height && width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; } 
+        else if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
+        
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6)); // %60 kalite ile sıkıştırıp 1MB çökmesini engeller
+      };
+    };
+  });
+};
+
 export default function App() {
   // --- STATES ---
   const [viewState, setViewState] = useState({ longitude: 28.97, latitude: 41.01, zoom: 14 });
@@ -40,13 +72,17 @@ export default function App() {
   useEffect(() => {
     const verileriGetir = async () => {
       try {
-        // Kullanıcıları Çek
-        const userSnapshot = await getDocs(collection(db, "users"));
-        const userListesi = [];
-        userSnapshot.forEach((doc) => {
-          userListesi.push({ id: doc.id, ...doc.data() });
-        });
-        setAllUsers(userListesi);
+       // Kullanıcıları Çek (SADECE ADMİN İSE)
+        if (currentUser && currentUser.role === 'admin') {
+          const userSnapshot = await getDocs(collection(db, "users"));
+          const userListesi = [];
+          userSnapshot.forEach((doc) => {
+            userListesi.push({ id: doc.id, ...doc.data() });
+          });
+          setAllUsers(userListesi);
+        } else {
+          setAllUsers([]); // Admin değilse başkalarının bilgisini indirme
+        }
 
         // Yapıları Çek (Sayfa Yenilenince Gitmemesi İçin)
         const structSnapshot = await getDocs(collection(db, "structures"));
@@ -60,7 +96,7 @@ export default function App() {
       } catch (e) { console.error("Veri hatası:", e); }
     };
     verileriGetir();
-  }, [activeTab]);
+  }, [currentUser]); // activeTab silindi. Artık sekme değiştikçe veritabanı yorulmayacak.
 
   // --- KAYIT OL (Mükerrer Kontrolü Dahil) ---
   const handleRegister = async (e) => {
@@ -79,7 +115,7 @@ export default function App() {
         await addDoc(collection(db, "users"), {
           adSoyad: fd.get('adSoyad'),
           email: email,
-          sifre: fd.get('sifre'),
+          sifre: await hashPassword(fd.get('sifre')),
           ogrenciNo: fd.get('ogrenciNo'),
           kimlikFoto: reader.result, 
           role: 'member',
@@ -97,13 +133,9 @@ export default function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     const email = document.getElementById('loginEmail').value;
-    const sifre = document.getElementById('loginPass').value;
+    const rawSifre = document.getElementById('loginPass').value;
+    const sifre = await hashPassword(rawSifre); // Şifreyi veritabanındaki gibi kriptola
 
-    if (email === 'admin@site.com' && sifre === 'Admin123') {
-      setCurrentUser({ adSoyad: 'Site Sahibi', role: 'admin', status: 'active', email: 'admin@site.com' });
-      setModalMode(null);
-      return;
-    }
 
     try {
       const q = query(collection(db, "users"), where("email", "==", email), where("sifre", "==", sifre));
@@ -141,11 +173,7 @@ export default function App() {
     e.preventDefault();
     const fd = new FormData(e.target);
     const files = Array.from(e.target.fotos.files); 
-    const photoPromises = files.map(file => new Promise(res => {
-      const r = new FileReader();
-      r.onloadend = () => res(r.result);
-      r.readAsDataURL(file);
-    }));
+    const photoPromises = files.map(file => compressImage(file));
 
     Promise.all(photoPromises).then(async (base64Photos) => {
       const newS = {
@@ -216,9 +244,7 @@ export default function App() {
     };
 
     if (files.length > 0 && files[0].name !== "") {
-      const photoPromises = files.map(file => new Promise(res => {
-        const r = new FileReader(); r.onloadend = () => res(r.result); r.readAsDataURL(file);
-      }));
+      const photoPromises = files.map(file => compressImage(file));
       Promise.all(photoPromises).then(applyUpdate);
     } else {
       applyUpdate([]);
