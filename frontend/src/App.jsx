@@ -323,7 +323,7 @@ export default function App() {
       
       {/* --- NAV --- */}
       <nav style={navStyle}>
-        <div style={{ fontWeight: '800', fontSize: '1.2rem', color: '#1e40af' }}>SU MİMARİSİ <span style={{fontWeight: '300'}}>ARŞİVİ</span></div>
+        <div style={{ fontWeight: '800', fontSize: '1.2rem', color: '#1e40af' }}>SU YAPILARI<span style={{fontWeight: '300'}}>HARİTASI</span></div>
         <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
           <button onClick={() => setActiveTab('map')} style={menuItem(activeTab === 'map')}>Harita</button>
           <button onClick={() => setActiveTab('list')} style={menuItem(activeTab === 'list')}>Yapı Listesi</button>
