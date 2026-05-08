@@ -144,6 +144,19 @@ export default function App() {
               mapStyle="mapbox://styles/mapbox/streets-v12"
               mapboxAccessToken={MAPBOX_TOKEN}
               projection="globe"
+              onLoad={(e) => {
+    const map = e.target;
+    // Haritadaki tüm yazı katmanlarını bulup dillerini Türkçe ('tr') yapıyoruz
+    map.getStyle().layers.forEach((layer) => {
+      if (layer.layout && layer.layout['text-field']) {
+        map.setLayoutProperty(layer.id, 'text-field', [
+          'coalesce',
+          ['get', 'name_tr'], // Önce Türkçe ismi dene
+          ['get', 'name'],    // Yoksa orijinal ismi kullan
+        ]);
+      }
+    });
+  }}
               onClick={async (e) => {
                 const { lng, lat } = e.lngLat;
                 setSecilenNokta({ lng, lat });
