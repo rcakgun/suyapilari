@@ -12,7 +12,7 @@ const YAPI_KATALOGU = {
 };
 
 export default function App() {
-  // --- DURUM YÖNETİMİ (STATES) ---
+  // --- STATES ---
   const [viewState, setViewState] = useState({ longitude: 28.97, latitude: 41.01, zoom: 14 });
   const [currentUser, setCurrentUser] = useState(null); 
   const [allUsers, setAllUsers] = useState([]); 
@@ -31,7 +31,7 @@ export default function App() {
 
   const mapRef = useRef(null);
 
-  // --- FIREBASE: VERİLERİ CANLI ÇEK ---
+  // --- FIREBASE: VERI CEKME ---
   useEffect(() => {
     const verileriGetir = async () => {
       try {
@@ -46,23 +46,19 @@ export default function App() {
     verileriGetir();
   }, [activeTab]);
 
-  // --- ÜYE KAYIT (Mükerrer Kontrolü Dahil) ---
+  // --- KAYIT OL (Mükerrer Kontrolü Dahil) ---
   const handleRegister = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const email = fd.get('email');
 
     try {
-      // 1. E-posta kontrolü
       const q = query(collection(db, "users"), where("email", "==", email));
       const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
-        return alert("Bu e-posta adresi ile zaten bir başvuru mevcut!");
-      }
+      if (!snapshot.empty) return alert("Bu e-posta adresi ile zaten bir başvuru mevcut!");
 
       const photoFile = fd.get('kimlikFoto');
       const reader = new FileReader();
-
       reader.onloadend = async () => {
         await addDoc(collection(db, "users"), {
           adSoyad: fd.get('adSoyad'),
@@ -110,7 +106,7 @@ export default function App() {
       const userRef = doc(db, "users", userId);
       await updateDoc(userRef, { status: 'active' });
       setAllUsers(prev => prev.map(u => u.id === userId ? {...u, status: 'active'} : u));
-      alert("Üye başarıyla onaylandı!");
+      alert("Üye aktif edildi!");
     } catch (error) { alert(error.message); }
   };
 
@@ -144,7 +140,7 @@ export default function App() {
     });
   };
 
-  // --- ARAMA FONKSİYONU ---
+  // --- ARAMA ---
   useEffect(() => {
     if (aramaMetni.length < 3) return;
     const t = setTimeout(async () => {
@@ -158,7 +154,7 @@ export default function App() {
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#fdfdfd', fontFamily: 'sans-serif' }}>
       
-      {/* --- ÜST NAVİGASYON --- */}
+      {/* --- NAV --- */}
       <nav style={navStyle}>
         <div style={{ fontWeight: '800', fontSize: '1.2rem', color: '#1e40af' }}>SU MİMARİSİ <span style={{fontWeight: '300'}}>ARŞİVİ</span></div>
         <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
@@ -180,7 +176,7 @@ export default function App() {
         </div>
       </nav>
 
-      {/* --- ANA İÇERİK ALANI --- */}
+      {/* --- ANA ALAN --- */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         
         {activeTab === 'map' && (
@@ -216,6 +212,34 @@ export default function App() {
               ))}
               {secilenNokta && <Marker longitude={secilenNokta.lng} latitude={secilenNokta.lat} color="#ef4444" />}
             </Map>
+
+            {/* ARAMA (BURADAYIM!) */}
+            <div style={{ position: 'absolute', top: 20, left: 20, width: '320px', zIndex: 10 }}>
+              <input type="text" placeholder="Yapı veya semt ara..." value={aramaMetni} onChange={e => setAramaMetni(e.target.value)} style={searchInput} />
+              {oneriler.length > 0 && (
+                <div style={searchList}>
+                  {oneriler.map((o, i) => (
+                    <div key={i} onClick={() => {
+                      const lat = parseFloat(o.lat); const lon = parseFloat(o.lon);
+                      mapRef.current?.flyTo({ center: [lon, lat], zoom: 17 });
+                      setSecilenNokta({ lng: lon, lat });
+                      setOneriler([]);
+                    }} style={searchItem}>{o.display_name}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* FİLTRELER (BURADAYIM!) */}
+            <div style={filterPanel}>
+              <div style={{fontSize: '0.7rem', fontWeight: '800', color: '#94a3b8', marginBottom: '10px'}}>KOLEKSİYON</div>
+              {Object.keys(YAPI_KATALOGU).map(t => (
+                <label key={t} style={filterItem}>
+                  <input type="checkbox" checked={activeFiltreler.includes(t)} onChange={() => setAktifFiltreler(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])} />
+                  <span>{YAPI_KATALOGU[t]} {t}</span>
+                </label>
+              ))}
+            </div>
           </>
         )}
 
@@ -223,39 +247,32 @@ export default function App() {
           <div style={contentPage}>
             <h2 style={{color: '#1e40af', marginBottom: '30px'}}>Yönetim Paneli</h2>
             
-            {/* KOMPAKT BEKLEYEN BAŞVURULAR */}
-            <h3 style={sectionTitle}>Onay Bekleyen Başvurular</h3>
+            <h3 style={sectionTitle}>Bekleyen Başvurular</h3>
             <div style={adminGrid}>
               {allUsers.filter(u => u.status === 'pending').map(u => (
                 <div key={u.id} style={adminCard}>
                   <div style={{display: 'flex', gap: '12px'}}>
-                    <img 
-                      src={u.kimlikFoto} 
-                      onClick={() => setZoomPhoto(u.kimlikFoto)}
-                      style={compactImg} 
-                      alt="Kimlik" 
-                    />
+                    <img src={u.kimlikFoto} onClick={() => setZoomPhoto(u.kimlikFoto)} style={compactImg} alt="Kimlik" />
                     <div style={{flex: 1}}>
-                      <p style={{margin: '0 0 4px 0', fontWeight: 'bold', fontSize: '0.9rem'}}>{u.adSoyad}</p>
+                      <p style={{margin: '0 0 4px 0', fontWeight: 'bold', fontSize: '0.85rem'}}>{u.adSoyad}</p>
                       <p style={{fontSize: '0.7rem', color: '#666', margin: '0 0 8px 0'}}>{u.email} <br/> No: {u.ogrenciNo}</p>
                       <button onClick={() => handleApproveUser(u.id)} style={approveBtnMini}>Onayla</button>
                     </div>
                   </div>
                 </div>
               ))}
-              {allUsers.filter(u => u.status === 'pending').length === 0 && <p style={{color: '#94a3b8'}}>Bekleyen yeni başvuru yok.</p>}
+              {allUsers.filter(u => u.status === 'pending').length === 0 && <p style={{color: '#94a3b8'}}>Bekleyen başvuru yok.</p>}
             </div>
 
             <hr style={{margin: '40px 0', border: 'none', borderTop: '1px solid #e2e8f0'}} />
 
-            {/* AKTİF ÜYELER LİSTESİ */}
-            <h3 style={sectionTitle}>Aktif Üyeler</h3>
+            <h3 style={sectionTitle}>Kabul Edilen Üyeler</h3>
             <div style={adminGrid}>
               {allUsers.filter(u => u.status === 'active' && u.role !== 'admin').map(u => (
                 <div key={u.id} style={{...adminCard, opacity: 0.85, padding: '12px'}}>
                    <p style={{margin: '0 0 4px 0', fontWeight: 'bold', fontSize: '0.85rem'}}>{u.adSoyad}</p>
                    <p style={{fontSize: '0.7rem', color: '#64748b'}}>{u.email} - No: {u.ogrenciNo}</p>
-                   <span style={{fontSize: '0.6rem', color: '#10b981', fontWeight: 'bold', textTransform: 'uppercase'}}>● Aktif Üye</span>
+                   <span style={{fontSize: '0.6rem', color: '#10b981', fontWeight: 'bold'}}>● AKTİF ÜYE</span>
                 </div>
               ))}
             </div>
@@ -279,7 +296,7 @@ export default function App() {
         )}
       </div>
 
-      {/* --- MODAL PENCERELERİ --- */}
+      {/* --- MODALLAR --- */}
       {modalMode && (
         <div style={modalOverlay}>
           <div style={modalBox}>
@@ -300,23 +317,10 @@ export default function App() {
                 <input required name="adSoyad" placeholder="Ad Soyad" style={fIn} />
                 <input required name="email" type="email" placeholder="E-posta" style={fIn} />
                 <input required name="sifre" type="password" placeholder="Şifre" style={fIn} />
-                <input required name="ogrenciNo" placeholder="Öğrenci Numarası" style={fIn} />
-                <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Öğrenci Kimliği (Fotoğraf):</label>
+                <input required name="ogrenciNo" placeholder="Öğrenci No" style={fIn} />
+                <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Öğrenci Kimliği:</label>
                 <input required name="kimlikFoto" type="file" style={fIn} />
-                <button style={actionBtn}>Kayıt Başvurusunu Gönder</button>
-              </form>
-            )}
-
-            {modalMode === 'addStructure' && (
-              <form onSubmit={handleAddStructure} style={{width: '100%'}}>
-                <h3>Yeni Yapı Ekle</h3>
-                <input required name="ad" placeholder="Yapı Adı" style={fIn} />
-                <select name="tur" style={fIn}>
-                  {Object.keys(YAPI_KATALOGU).map(t => <option key={t}>{t}</option>)}
-                </select>
-                <textarea required name="bilgi" placeholder="Yapı Hakkında Detaylı Bilgi" style={{...fIn, height: '100px'}} />
-                <input required name="fotos" type="file" multiple style={fIn} />
-                <button style={actionBtn}>Onaya Gönder</button>
+                <button style={actionBtn}>Başvuruyu Gönder</button>
               </form>
             )}
 
@@ -329,10 +333,7 @@ export default function App() {
                   {detayYapi.fotolar?.map((img, i) => <img key={i} src={img} style={{height: '120px', borderRadius: '8px'}} alt="Yapı" />)}
                 </div>
                 {/* STREET VIEW BUTONU */}
-                <button 
-                  onClick={() => window.open(`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} 
-                  style={streetBtn}
-                >
+                <button onClick={() => window.open(`https://www.google.com/maps?q&layer=c&cbll=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} style={streetBtn}>
                   📷 Sokak Görünümü (Street View)
                 </button>
               </div>
@@ -341,29 +342,18 @@ export default function App() {
         </div>
       )}
 
-      {/* --- FOTOĞRAF ZOOM EKRANI --- */}
       {zoomPhoto && (
         <div onClick={() => setZoomPhoto(null)} style={{...modalOverlay, background: 'rgba(0,0,0,0.92)', zIndex: 3000}}>
-          <img src={zoomPhoto} style={{maxHeight: '90vh', maxWidth: '90vw', borderRadius: '10px', boxShadow: '0 0 50px rgba(0,0,0,0.5)'}} alt="Zoom" />
+          <img src={zoomPhoto} style={{maxHeight: '90vh', maxWidth: '90vw', borderRadius: '10px'}} alt="Zoom" />
         </div>
       )}
 
-      {/* --- SEÇİLEN KONUM BİLGİ KUTUSU --- */}
       {secilenNokta && activeTab === 'map' && !modalMode && (
         <div style={infoBox}>
           <p style={{fontSize: '0.75rem', color: '#64748b', marginBottom: '12px'}}>{adres}</p>
           <div style={{display: 'flex', gap: '10px'}}>
-            <button 
-              onClick={() => window.open(`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${secilenNokta.lat},${secilenNokta.lng}`, '_blank')} 
-              style={{...miniBtn, background: '#334155'}}
-            >
-              📷 Sokak
-            </button>
-            <button 
-              disabled={!currentUser || currentUser.status === 'pending'}
-              onClick={() => setModalMode('addStructure')} 
-              style={{...miniBtn, background: (!currentUser || currentUser.status === 'pending') ? '#ccc' : '#10b981'}}
-            >
+            <button onClick={() => window.open(`https://www.google.com/maps?q&layer=c&cbll=${secilenNokta.lat},${secilenNokta.lng}`, '_blank')} style={{...miniBtn, background: '#334155'}}>📷 Sokak</button>
+            <button disabled={!currentUser || currentUser.status === 'pending'} onClick={() => setModalMode('addStructure')} style={{...miniBtn, background: (!currentUser || currentUser.status === 'pending') ? '#ccc' : '#10b981'}}>
               {!currentUser ? "Giriş Yapın" : "➕ Yapı Ekle"}
             </button>
           </div>
@@ -373,246 +363,29 @@ export default function App() {
   );
 }
 
-// --- GENİŞLETİLMİŞ STİL BLOKLARI (430+ SATIR İÇİN) ---
-const navStyle = { 
-  display: 'flex', 
-  justifyContent: 'space-between', 
-  alignItems: 'center', 
-  padding: '15px 30px', 
-  background: 'white', 
-  borderBottom: '1px solid #e2e8f0', 
-  zIndex: 100 
-};
-
-const menuItem = (active) => ({ 
-  background: 'transparent', 
-  border: 'none', 
-  color: active ? '#1e40af' : '#64748b', 
-  fontWeight: 'bold', 
-  cursor: 'pointer', 
-  fontSize: '0.9rem' 
-});
-
-const loginBtn = { 
-  padding: '8px 20px', 
-  borderRadius: '10px', 
-  border: '1px solid #1e40af', 
-  color: '#1e40af', 
-  background: 'white', 
-  fontWeight: 'bold', 
-  cursor: 'pointer' 
-};
-
-const registerBtn = { 
-  padding: '8px 20px', 
-  borderRadius: '10px', 
-  border: 'none', 
-  background: '#1e40af', 
-  color: 'white', 
-  fontWeight: 'bold', 
-  cursor: 'pointer' 
-};
-
-const logoutBtn = { 
-  background: '#fee2e2', 
-  color: '#dc2626', 
-  border: 'none', 
-  padding: '8px 15px', 
-  borderRadius: '10px', 
-  fontSize: '0.75rem', 
-  fontWeight: 'bold', 
-  cursor: 'pointer' 
-};
-
-const searchInput = { 
-  width: '100%', 
-  padding: '15px', 
-  borderRadius: '15px', 
-  border: 'none', 
-  boxShadow: '0 4px 20px rgba(0,0,0,0.08)', 
-  outline: 'none', 
-  boxSizing: 'border-box' 
-};
-
-const searchList = { 
-  background: 'white', 
-  marginTop: '5px', 
-  borderRadius: '12px', 
-  boxShadow: '0 10px 30px rgba(0,0,0,0.1)', 
-  overflow: 'hidden' 
-};
-
-const searchItem = { 
-  padding: '12px', 
-  fontSize: '0.8rem', 
-  cursor: 'pointer', 
-  borderBottom: '1px solid #f1f5f9' 
-};
-
-const filterPanel = { 
-  position: 'absolute', 
-  top: 20, 
-  right: 20, 
-  background: 'white', 
-  padding: '20px', 
-  borderRadius: '20px', 
-  boxShadow: '0 4px 30px rgba(0,0,0,0.05)', 
-  width: '160px' 
-};
-
-const filterItem = { 
-  display: 'flex', 
-  alignItems: 'center', 
-  gap: '8px', 
-  fontSize: '0.8rem', 
-  color: '#475569', 
-  marginBottom: '8px', 
-  cursor: 'pointer' 
-};
-
-const modalOverlay = { 
-  position: 'absolute', 
-  inset: 0, 
-  background: 'rgba(15,23,42,0.5)', 
-  backdropFilter: 'blur(5px)', 
-  display: 'flex', 
-  alignItems: 'center', 
-  justifyContent: 'center', 
-  zIndex: 2000 
-};
-
-const modalBox = { 
-  background: 'white', 
-  padding: '40px', 
-  borderRadius: '30px', 
-  width: '450px', 
-  position: 'relative', 
-  boxShadow: '0 25px 50px rgba(0,0,0,0.15)', 
-  display: 'flex', 
-  flexDirection: 'column', 
-  alignItems: 'flex-start', 
-  boxSizing: 'border-box' 
-};
-
-const fIn = { 
-  width: '100%', 
-  padding: '12px', 
-  borderRadius: '10px', 
-  border: '1px solid #e2e8f0', 
-  marginBottom: '15px', 
-  outline: 'none', 
-  boxSizing: 'border-box' 
-};
-
-const actionBtn = { 
-  width: '100%', 
-  padding: '15px', 
-  background: '#1e40af', 
-  color: 'white', 
-  border: 'none', 
-  borderRadius: '12px', 
-  fontWeight: 'bold', 
-  cursor: 'pointer', 
-  boxSizing: 'border-box' 
-};
-
-const closeBtn = { 
-  position: 'absolute', 
-  top: 20, 
-  right: 20, 
-  border: 'none', 
-  background: '#f1f5f9', 
-  width: '30px', 
-  height: '30px', 
-  borderRadius: '50%', 
-  cursor: 'pointer' 
-};
-
-const contentPage = { 
-  padding: '50px', 
-  overflowY: 'auto', 
-  height: 'calc(100vh - 70px)', 
-  boxSizing: 'border-box' 
-};
-
-const adminGrid = { 
-  display: 'grid', 
-  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
-  gap: '20px' 
-};
-
-const adminSection = { 
-  background: '#f8fafc', 
-  padding: '25px', 
-  borderRadius: '25px' 
-};
-
-const adminCard = { 
-  background: 'white', 
-  padding: '15px', 
-  borderRadius: '15px', 
-  border: '1px solid #e2e8f0', 
-  boxShadow: '0 2px 10px rgba(0,0,0,0.02)' 
-};
-
-const compactImg = { 
-  width: '70px', 
-  height: '70px', 
-  objectFit: 'cover', 
-  borderRadius: '8px', 
-  cursor: 'zoom-in' 
-};
-
-const approveBtnMini = { 
-  padding: '8px 15px', 
-  background: '#10b981', 
-  color: 'white', 
-  border: 'none', 
-  borderRadius: '8px', 
-  cursor: 'pointer', 
-  fontWeight: 'bold', 
-  fontSize: '0.75rem' 
-};
-
-const sectionTitle = { 
-  fontSize: '1rem', 
-  color: '#94a3b8', 
-  fontWeight: '800', 
-  marginBottom: '20px', 
-  textTransform: 'uppercase', 
-  letterSpacing: '1px' 
-};
-
-const infoBox = { 
-  position: 'absolute', 
-  bottom: 30, 
-  left: 20, 
-  background: 'white', 
-  padding: '25px', 
-  borderRadius: '25px', 
-  boxShadow: '0 20px 50px rgba(0,0,0,0.1)', 
-  width: '320px' 
-};
-
-const miniBtn = { 
-  flex: 1, 
-  padding: '12px', 
-  color: 'white', 
-  border: 'none', 
-  borderRadius: '12px', 
-  fontWeight: 'bold', 
-  fontSize: '0.8rem', 
-  cursor: 'pointer' 
-};
-
-const streetBtn = { 
-  width: '100%', 
-  padding: '15px', 
-  background: '#334155', 
-  color: 'white', 
-  border: 'none', 
-  borderRadius: '12px', 
-  fontWeight: 'bold', 
-  marginTop: '15px', 
-  cursor: 'pointer' 
-};
+// --- STİLLER (KUSURSUZ HİZALAMA İÇİN) ---
+const navStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 30px', background: 'white', borderBottom: '1px solid #e2e8f0', zIndex: 100 };
+const menuItem = (active) => ({ background: 'transparent', border: 'none', color: active ? '#1e40af' : '#64748b', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem' });
+const loginBtn = { padding: '8px 20px', borderRadius: '10px', border: '1px solid #1e40af', color: '#1e40af', background: 'white', fontWeight: 'bold', cursor: 'pointer' };
+const registerBtn = { padding: '8px 20px', borderRadius: '10px', border: 'none', background: '#1e40af', color: 'white', fontWeight: 'bold', cursor: 'pointer' };
+const logoutBtn = { background: '#fee2e2', color: '#dc2626', border: 'none', padding: '8px 15px', borderRadius: '10px', fontSize: '0.7rem', fontWeight: 'bold', cursor: 'pointer' };
+const searchInput = { width: '100%', padding: '15px', borderRadius: '15px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', outline: 'none', boxSizing: 'border-box' };
+const searchList = { background: 'white', marginTop: '5px', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', overflow: 'hidden' };
+const searchItem = { padding: '12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' };
+const filterPanel = { position: 'absolute', top: 20, right: 20, background: 'white', padding: '20px', borderRadius: '20px', boxShadow: '0 4px 30px rgba(0,0,0,0.05)', width: '160px' };
+const filterItem = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#475569', marginBottom: '8px', cursor: 'pointer' };
+const modalOverlay = { position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 };
+const modalBox = { background: 'white', padding: '40px', borderRadius: '30px', width: '450px', position: 'relative', boxShadow: '0 25px 50px rgba(0,0,0,0.15)', boxSizing: 'border-box' };
+const fIn = { width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '15px', outline: 'none', boxSizing: 'border-box' };
+const actionBtn = { width: '100%', padding: '15px', background: '#1e40af', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', boxSizing: 'border-box' };
+const closeBtn = { position: 'absolute', top: 20, right: 20, border: 'none', background: '#f1f5f9', width: '30px', height: '30px', borderRadius: '50%', cursor: 'pointer' };
+const contentPage = { padding: '50px', overflowY: 'auto', height: 'calc(100vh - 70px)', boxSizing: 'border-box' };
+const adminGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' };
+const adminSection = { background: '#f8fafc', padding: '25px', borderRadius: '25px' };
+const adminCard = { background: 'white', padding: '15px', borderRadius: '15px', border: '1px solid #e2e8f0', boxShadow: '0 2px 10px rgba(0,0,0,0.02)' };
+const compactImg = { width: '70px', height: '70px', objectFit: 'cover', borderRadius: '8px', cursor: 'zoom-in' };
+const approveBtnMini = { padding: '8px 15px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.75rem' };
+const sectionTitle = { fontSize: '1rem', color: '#94a3b8', fontWeight: '800', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '1px' };
+const infoBox = { position: 'absolute', bottom: 30, left: 20, background: 'white', padding: '25px', borderRadius: '25px', boxShadow: '0 20px 50px rgba(0,0,0,0.1)', width: '320px' };
+const miniBtn = { flex: 1, padding: '12px', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' };
+const streetBtn = { width: '100%', padding: '15px', background: '#334155', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', marginTop: '15px', cursor: 'pointer' };
