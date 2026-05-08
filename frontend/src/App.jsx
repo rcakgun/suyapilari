@@ -1,3 +1,4 @@
+import { collection, addDoc, getDocs, updateDoc, doc, query, where } from "firebase/firestore";
 import React, { useState, useEffect, useRef } from 'react';
 import { Map, Marker, NavigationControl } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -5,7 +6,6 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { db } from './firebase'; 
 // Firebase'in ekleme, çekme ve güncelleme özelliklerini alıyoruz
 import { db } from './firebase'; 
-import { collection, addDoc, getDocs, updateDoc, doc, query, where } from "firebase/firestore";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
