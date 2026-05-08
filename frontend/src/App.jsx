@@ -102,30 +102,24 @@ export default function App() {
     const auth = getAuth();
 
     try {
-      const photoFile = fd.get('kimlikFoto');
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        // 1. Firebase Auth'a Kaydet
-        const userCredential = await createUserWithEmailAndPassword(auth, email, sifre);
-        const uid = userCredential.user.uid;
+      // 1. Firebase Auth'a Kaydet
+      const userCredential = await createUserWithEmailAndPassword(auth, email, sifre);
+      const uid = userCredential.user.uid;
 
-        // 2. Kullanıcı Profilini Firestore'a Auth UID'si ile Kaydet
-        await setDoc(doc(db, "users", uid), {
-          adSoyad: fd.get('adSoyad'),
-          email: email,
-          ogrenciNo: fd.get('ogrenciNo'),
-          kimlikFoto: reader.result, 
-          role: 'member',
-          status: 'pending',
-          kayitTarihi: new Date().toISOString()
-        });
-        
-        await signOut(auth); // Onaylanana kadar oturumu kapalı tut
-        setModalMode(null);
-        alert("Başvurunuz kaydedildi. Yönetici onayı bekleyin.");
-      };
-      if (photoFile) reader.readAsDataURL(photoFile);
-    } catch (error) { 
+      // 2. Kullanıcı Profilini Firestore'a Auth UID'si ile Kaydet
+      await setDoc(doc(db, "users", uid), {
+        adSoyad: fd.get('adSoyad'),
+        email: email,
+        ogrenciNo: fd.get('ogrenciNo'),
+        role: 'member',
+        status: 'pending',
+        kayitTarihi: new Date().toISOString()
+      });
+      
+      await signOut(auth); // Onaylanana kadar oturumu kapalı tut
+      setModalMode(null);
+      alert("Başvurunuz kaydedildi. Yönetici onayı bekleyin.");
+    } catch (error) {
       if(error.code === 'auth/weak-password') alert("Şifre en az 6 karakter olmalıdır.");
       else if(error.code === 'auth/email-already-in-use') alert("Bu e-posta adresi ile zaten bir başvuru mevcut!");
       else alert("Hata: " + error.message); 
@@ -150,6 +144,10 @@ export default function App() {
         if (userData.status === 'pending') {
           await signOut(auth);
           return alert("Hesabınız henüz onaylanmadı.");
+        }
+        if (userData.status === 'banned' || userData.status === 'deleted') {
+          await signOut(auth);
+          return alert("Hesabınız yönetici tarafından engellenmiş veya silinmiştir.");
         }
         setCurrentUser({ id: uid, ...userData });
         setModalMode(null);
@@ -185,12 +183,13 @@ export default function App() {
   };
 
   // --- ÜYEYİ SİL (ADMİN) ---
+  // --- ÜYEYİ ENGELLE (ADMİN) ---
   const handleDeleteUser = async (userId) => {
-    if (!window.confirm("Bu üyeyi silmek istediğinize emin misiniz? (Eklediği yapılar haritada kalmaya devam edecek)")) return;
+    if (!window.confirm("Bu üyeyi silmek/engellemek istediğinize emin misiniz? (Eklediği yapılar haritada kalmaya devam edecek)")) return;
     try {
-      await deleteDoc(doc(db, "users", userId));
-      setAllUsers(prev => prev.filter(u => u.id !== userId));
-      alert("Üye başarıyla silindi!");
+      await updateDoc(doc(db, "users", userId), { status: 'banned' });
+      setAllUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'banned' } : u));
+      alert("Üye başarıyla engellendi!");
     } catch (error) { alert("Hata: " + error.message); }
   };
 
@@ -421,7 +420,6 @@ export default function App() {
               {allUsers.filter(u => u.status === 'pending').map(u => (
                 <div key={u.id} style={adminCard}>
                   <div style={{display: 'flex', gap: '12px'}}>
-                    <img src={u.kimlikFoto} onClick={() => setZoomPhoto(u.kimlikFoto)} style={compactImg} alt="Kimlik" />
                     <div style={{flex: 1}}>
                       <p style={{margin: '0 0 4px 0', fontWeight: 'bold', fontSize: '0.85rem'}}>{u.adSoyad}</p>
                       <p style={{fontSize: '0.7rem', color: '#666', margin: '0 0 8px 0'}}>{u.email} <br/> No: {u.ogrenciNo}</p>
@@ -588,8 +586,6 @@ export default function App() {
                 <input required name="email" type="email" placeholder="E-posta" style={fIn} />
                 <input required name="sifre" type="password" placeholder="Şifre" style={fIn} />
                 <input required name="ogrenciNo" placeholder="Öğrenci No" style={fIn} />
-                <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Öğrenci Kimliği:</label>
-                <input required name="kimlikFoto" type="file" style={fIn} />
                 <button style={actionBtn}>Başvuruyu Gönder</button>
               </form>
             )}
