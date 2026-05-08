@@ -324,6 +324,20 @@ export default function App() {
               </form>
             )}
 
+{modalMode === 'addStructure' && (
+              <form onSubmit={handleAddStructure} style={{width: '100%'}}>
+                <h3>Yeni Yapı Ekle</h3>
+                <input required name="ad" placeholder="Yapı Adı" style={fIn} />
+                <select name="tur" style={fIn}>
+                  {Object.keys(YAPI_KATALOGU).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <textarea required name="bilgi" placeholder="Yapı Hakkında Detaylı Bilgi" style={{...fIn, height: '100px'}} />
+                <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Yapı Fotoğrafları:</label>
+                <input required name="fotos" type="file" multiple style={fIn} />
+                <button type="submit" style={actionBtn}>Onaya Gönder</button>
+              </form>
+            )}
+
             {modalMode === 'viewDetail' && detayYapi && (
               <div style={{width: '100%'}}>
                 <h2 style={{margin: '0 0 10px 0', color: '#1e40af'}}>{detayYapi.ad}</h2>
