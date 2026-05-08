@@ -126,7 +126,7 @@ export default function App() {
         id: Date.now(),
         ad: fd.get('ad'),
         tur: fd.get('tur'),
-        yil: fd.get('yil'), // Tarih bilgisi buradan geliyor
+        yil: fd.get('yil'),
         bilgi: fd.get('bilgi'),
         koordinat: secilenNokta,
         adres,
@@ -138,6 +138,47 @@ export default function App() {
       setModalMode(null);
       alert("Yapı onaya gönderildi.");
     });
+  };
+
+  // --- YAPI GÜNCELLEME (YENİ EKLENDİ) ---
+  const handleEditStructure = (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const files = Array.from(e.target.fotos.files); 
+    
+    const applyUpdate = (base64Photos) => {
+      const now = new Date();
+      const timeStr = now.toLocaleDateString('tr-TR') + " " + now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+      
+      const updatedStructure = {
+        ...detayYapi,
+        ad: fd.get('ad'),
+        tur: fd.get('tur'),
+        yil: fd.get('yil'),
+        bilgi: fd.get('bilgi'),
+        lastUpdatedBy: currentUser.adSoyad,
+        lastUpdatedDate: timeStr
+      };
+
+      if (base64Photos.length > 0) {
+        updatedStructure.fotolar = [...(detayYapi.fotolar || []), ...base64Photos];
+      }
+
+      setAllStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
+      setPendingStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
+      setDetayYapi(updatedStructure);
+      setModalMode('viewDetail');
+      alert("Yapı bilgileri başarıyla güncellendi!");
+    };
+
+    if (files.length > 0 && files[0].name !== "") {
+      const photoPromises = files.map(file => new Promise(res => {
+        const r = new FileReader(); r.onloadend = () => res(r.result); r.readAsDataURL(file);
+      }));
+      Promise.all(photoPromises).then(applyUpdate);
+    } else {
+      applyUpdate([]);
+    }
   };
 
   // --- ARAMA ---
@@ -170,7 +211,6 @@ export default function App() {
           ) : (
             <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
               <span style={{fontSize: '0.8rem', fontWeight: 'bold'}}>{currentUser.adSoyad}</span>
-              {/* ÇIKIŞ BUTONU DÜZELTİLDİ: ARTIK MAP'E DÖNER */}
               <button onClick={() => { setCurrentUser(null); setActiveTab('map'); }} style={logoutBtn}>Çıkış</button>
             </div>
           )}
@@ -267,20 +307,32 @@ export default function App() {
 
             <hr style={{margin: '40px 0', border: 'none', borderTop: '1px solid #e2e8f0'}} />
 
-            {/* YAPI ONAYLAMA PANELİ BURAYA EKLENDİ */}
+            {/* YÖNETİCİ - ONAY BEKLEYEN YAPILAR (DETAYLI GÖRÜNÜM EKLENDİ) */}
             <h3 style={sectionTitle}>Onay Bekleyen Yapılar</h3>
             <div style={adminGrid}>
               {pendingStructures.map(s => (
                 <div key={s.id} style={adminCard}>
-                  <p style={{margin: '0 0 5px 0', fontWeight: 'bold'}}>{s.ad}</p>
-                  <p style={{fontSize: '0.7rem', color: '#666'}}>{s.tur} - Ekleyen: {s.ekleyen}</p>
+                  <p style={{margin: '0 0 5px 0', fontWeight: 'bold', color: '#1e40af'}}>{s.ad}</p>
+                  <p style={{fontSize: '0.8rem', color: '#666', margin: '0 0 5px 0'}}>{s.tur} {s.yil && `• ${s.yil}`}</p>
+                  <p style={{fontSize: '0.8rem', lineHeight: '1.5', maxHeight: '100px', overflowY: 'auto', marginBottom: '10px'}}>{s.bilgi}</p>
+                  
+                  {s.fotolar && s.fotolar.length > 0 && (
+                    <div style={{display: 'flex', gap: '8px', overflowX: 'auto', padding: '10px 0', borderTop: '1px solid #f1f5f9'}}>
+                      {s.fotolar.map((img, i) => (
+                        <img key={i} src={img} onClick={() => setZoomPhoto(img)} style={{height: '60px', borderRadius: '5px', cursor: 'zoom-in'}} alt="Yapı" />
+                      ))}
+                    </div>
+                  )}
+
+                  <p style={{fontSize: '0.7rem', color: '#10b981', fontWeight: 'bold', marginTop: '10px'}}>Ekleyen: {s.ekleyen}</p>
+
                   <button 
                     onClick={() => {
                       setAllStructures([...allStructures, {...s, status: 'active'}]);
                       setPendingStructures(pendingStructures.filter(x => x.id !== s.id));
                       alert("Yapı haritaya eklendi!");
                     }} 
-                    style={approveBtnMini}
+                    style={{...approveBtnMini, marginTop: '15px'}}
                   >
                     Yapıyı Onayla
                   </button>
@@ -356,8 +408,7 @@ export default function App() {
                 <select name="tur" style={fIn}>
                   {Object.keys(YAPI_KATALOGU).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
-                {/* TARİH ALANI BURAYA EKLENDİ */}
-                <input name="yil" placeholder="Yapım Yılı / Dönemi (Örn: 1720 / Lale Devri)" style={fIn} />
+                <input name="yil" placeholder="Yapım Yılı / Dönemi (Örn: 1720)" style={fIn} />
                 <textarea required name="bilgi" placeholder="Yapı Hakkında Detaylı Bilgi" style={{...fIn, height: '100px'}} />
                 <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Yapı Fotoğrafları:</label>
                 <input required name="fotos" type="file" multiple style={fIn} />
@@ -365,18 +416,52 @@ export default function App() {
               </form>
             )}
 
+            {/* DÜZENLEME MODALI */}
+            {modalMode === 'editStructure' && detayYapi && (
+              <form onSubmit={handleEditStructure} style={{width: '100%'}}>
+                <h3>Yapı Bilgilerini Güncelle</h3>
+                <input required name="ad" defaultValue={detayYapi.ad} placeholder="Yapı Adı" style={fIn} />
+                <select name="tur" defaultValue={detayYapi.tur} style={fIn}>
+                  {Object.keys(YAPI_KATALOGU).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <input name="yil" defaultValue={detayYapi.yil} placeholder="Yapım Yılı / Dönemi" style={fIn} />
+                <textarea required name="bilgi" defaultValue={detayYapi.bilgi} placeholder="Yapı Hakkında Detaylı Bilgi" style={{...fIn, height: '100px'}} />
+                <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Yeni Fotoğraflar Ekle (İsteğe Bağlı):</label>
+                <input name="fotos" type="file" multiple style={fIn} />
+                <button type="submit" style={actionBtn}>Güncellemeyi Kaydet</button>
+              </form>
+            )}
+
+            {/* YAPI DETAYI (GALERİ, DÜZENLE BUTONU VE STREET VIEW ERROR ÇÖZÜMÜ) */}
             {modalMode === 'viewDetail' && detayYapi && (
               <div style={{width: '100%'}}>
                 <h2 style={{margin: '0 0 10px 0', color: '#1e40af'}}>{detayYapi.ad}</h2>
-                <p style={{fontSize: '0.9rem', color: '#666', marginBottom: '5px'}}>{detayYapi.tur} {detayYapi.yil && `• ${detayYapi.yil}`}</p>
-                <p style={{lineHeight: '1.6', fontSize: '0.95rem'}}>{detayYapi.bilgi}</p>
-                <div style={{display: 'flex', gap: '10px', overflowX: 'auto', padding: '10px 0'}}>
-                  {detayYapi.fotolar?.map((img, i) => <img key={i} src={img} style={{height: '120px', borderRadius: '8px'}} alt="Yapı" />)}
+                <p style={{fontSize: '0.9rem', color: '#666', marginBottom: '15px'}}>{detayYapi.tur} {detayYapi.yil && `• ${detayYapi.yil}`}</p>
+                <p style={{lineHeight: '1.6', fontSize: '0.95rem', maxHeight: '200px', overflowY: 'auto'}}>{detayYapi.bilgi}</p>
+                
+                {/* GALERİ */}
+                <div style={{display: 'flex', gap: '10px', overflowX: 'auto', padding: '10px 0', borderBottom: '1px solid #eee'}}>
+                  {detayYapi.fotolar?.map((img, i) => <img key={i} src={img} onClick={() => setZoomPhoto(img)} style={{height: '100px', borderRadius: '8px', cursor: 'zoom-in'}} alt="Yapı" />)}
                 </div>
-                {/* STREET VIEW BUTONU DÜZELTİLDİ */}
-                <button onClick={() => window.open(`http://googleusercontent.com/maps.google.com/search?api=1&query=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} style={streetBtn}>
-                  📷 Sokak Görünümü (Street View)
-                </button>
+
+                {/* DENETİM İZİ (KİM GÜNCELLEDİ?) */}
+                {(detayYapi.lastUpdatedBy || detayYapi.ekleyen) && (
+                  <div style={{marginTop: '15px', padding: '10px', background: '#f8fafc', borderRadius: '8px', borderLeft: '3px solid #10b981', fontSize: '0.75rem', color: '#475569'}}>
+                    <strong>Son Güncelleyen:</strong> {detayYapi.lastUpdatedBy || detayYapi.ekleyen} <br/>
+                    <strong>Tarih:</strong> {detayYapi.lastUpdatedDate || "Orijinal Kayıt"}
+                  </div>
+                )}
+
+                <div style={{display: 'flex', gap: '10px', marginTop: '15px'}}>
+                  <button onClick={() => window.open(`https://www.google.com/maps?layer=c&cbll=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} style={{...streetBtn, marginTop: 0, flex: 1}}>
+                    📷 Street View
+                  </button>
+                  {currentUser && currentUser.status === 'active' && (
+                    <button onClick={() => setModalMode('editStructure')} style={{...streetBtn, marginTop: 0, flex: 1, background: '#1e40af'}}>
+                      ✏️ Düzenle
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -385,7 +470,7 @@ export default function App() {
 
       {zoomPhoto && (
         <div onClick={() => setZoomPhoto(null)} style={{...modalOverlay, background: 'rgba(0,0,0,0.92)', zIndex: 3000}}>
-          <img src={zoomPhoto} style={{maxHeight: '90vh', maxWidth: '90vw', borderRadius: '10px'}} alt="Zoom" />
+          <img src={zoomPhoto} style={{maxHeight: '90vh', maxWidth: '90vw', borderRadius: '10px', boxShadow: '0 0 50px rgba(0,0,0,0.5)'}} alt="Zoom" />
         </div>
       )}
 
@@ -393,7 +478,7 @@ export default function App() {
         <div style={infoBox}>
           <p style={{fontSize: '0.75rem', color: '#64748b', marginBottom: '12px'}}>{adres}</p>
           <div style={{display: 'flex', gap: '10px'}}>
-            <button onClick={() => window.open(`http://googleusercontent.com/maps.google.com/search?api=1&query=${secilenNokta.lat},${secilenNokta.lng}`, '_blank')} style={{...miniBtn, background: '#334155'}}>📷 Sokak</button>
+            <button onClick={() => window.open(`https://www.google.com/maps?layer=c&cbll=${secilenNokta.lat},${secilenNokta.lng}`, '_blank')} style={{...miniBtn, background: '#334155'}}>📷 Sokak</button>
             <button disabled={!currentUser || currentUser.status === 'pending'} onClick={() => setModalMode('addStructure')} style={{...miniBtn, background: (!currentUser || currentUser.status === 'pending') ? '#ccc' : '#10b981'}}>
               {!currentUser ? "Giriş Yapın" : "➕ Yapı Ekle"}
             </button>
@@ -425,7 +510,7 @@ const adminGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, min
 const adminSection = { background: '#f8fafc', padding: '25px', borderRadius: '25px' };
 const adminCard = { background: 'white', padding: '15px', borderRadius: '15px', border: '1px solid #e2e8f0', boxShadow: '0 2px 10px rgba(0,0,0,0.02)' };
 const compactImg = { width: '70px', height: '70px', objectFit: 'cover', borderRadius: '8px', cursor: 'zoom-in' };
-const approveBtnMini = { padding: '8px 15px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.75rem' };
+const approveBtnMini = { padding: '8px 15px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.75rem', width: '100%' };
 const sectionTitle = { fontSize: '1rem', color: '#94a3b8', fontWeight: '800', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '1px' };
 const infoBox = { position: 'absolute', bottom: 30, left: 20, background: 'white', padding: '25px', borderRadius: '25px', boxShadow: '0 20px 50px rgba(0,0,0,0.1)', width: '320px' };
 const miniBtn = { flex: 1, padding: '12px', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' };
