@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Map, Marker } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { db } from './firebase'; 
-import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, where } from "firebase/firestore";
+import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, where, setDoc, getDoc } from "firebase/firestore";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "firebase/auth";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -16,13 +17,6 @@ const MALZEME_TURLERI = ['Taş', 'Tuğla', 'Ahşap', 'Mermer', 'Metal', 'Beton',
 const BOZULMA_TURLERI = ['Çatlak', 'Kırık', 'Eksilme', 'Bitkilenme', 'Renk Değişimi', 'Kirlenme', 'Aşınma'];
 
 // --- GÜVENLİK VE PERFORMANS FONKSİYONLARI ---
-const hashPassword = async (password) => {
-  const msgBuffer = new TextEncoder().encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-};
-
 const compressImage = (file) => {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -99,10 +93,13 @@ export default function App() {
   }, [currentUser]); // activeTab silindi. Artık sekme değiştikçe veritabanı yorulmayacak.
 
   // --- KAYIT OL (Mükerrer Kontrolü Dahil) ---
+  // --- KAYIT OL (Firebase Auth Entegreli) ---
   const handleRegister = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const email = fd.get('email');
+    const sifre = fd.get('sifre');
+    const auth = getAuth();
 
     try {
       const q = query(collection(db, "users"), where("email", "==", email));
@@ -112,40 +109,72 @@ export default function App() {
       const photoFile = fd.get('kimlikFoto');
       const reader = new FileReader();
       reader.onloadend = async () => {
-        await addDoc(collection(db, "users"), {
+        // 1. Firebase Auth'a Kaydet
+        const userCredential = await createUserWithEmailAndPassword(auth, email, sifre);
+        const uid = userCredential.user.uid;
+
+        // 2. Kullanıcı Profilini Firestore'a Auth UID'si ile Kaydet
+        await setDoc(doc(db, "users", uid), {
           adSoyad: fd.get('adSoyad'),
           email: email,
-          sifre: await hashPassword(fd.get('sifre')),
           ogrenciNo: fd.get('ogrenciNo'),
           kimlikFoto: reader.result, 
           role: 'member',
           status: 'pending',
           kayitTarihi: new Date().toISOString()
         });
+        
+        await signOut(auth); // Onaylanana kadar oturumu kapalı tut
         setModalMode(null);
         alert("Başvurunuz kaydedildi. Yönetici onayı bekleyin.");
       };
       if (photoFile) reader.readAsDataURL(photoFile);
-    } catch (error) { alert("Hata: " + error.message); }
+    } catch (error) { 
+      if(error.code === 'auth/weak-password') alert("Şifre en az 6 karakter olmalıdır.");
+      else alert("Hata: " + error.message); 
+    }
   };
 
   // --- GİRİŞ YAP ---
+ // --- GİRİŞ YAP (Firebase Auth Entegreli) ---
   const handleLogin = async (e) => {
     e.preventDefault();
     const email = document.getElementById('loginEmail').value;
-    const rawSifre = document.getElementById('loginPass').value;
-    const sifre = await hashPassword(rawSifre); // Şifreyi veritabanındaki gibi kriptola
-
+    const sifre = document.getElementById('loginPass').value;
+    const auth = getAuth();
 
     try {
-      const q = query(collection(db, "users"), where("email", "==", email), where("sifre", "==", sifre));
-      const querySnapshot = await getDocs(q);
-      if (querySnapshot.empty) return alert("Hatalı bilgiler!");
-      const userData = querySnapshot.docs[0].data();
-      if (userData.status === 'pending') return alert("Hesabınız henüz onaylanmadı.");
-      setCurrentUser({ id: querySnapshot.docs[0].id, ...userData });
-      setModalMode(null);
-    } catch (error) { console.error(error); }
+      const userCredential = await signInWithEmailAndPassword(auth, email, sifre);
+      const uid = userCredential.user.uid;
+      
+      const userDoc = await getDoc(doc(db, "users", uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        if (userData.status === 'pending') {
+          await signOut(auth);
+          return alert("Hesabınız henüz onaylanmadı.");
+        }
+        setCurrentUser({ id: uid, ...userData });
+        setModalMode(null);
+      }
+    } catch (error) { 
+      alert("Hatalı e-posta veya şifre girdiniz!"); 
+      console.error(error); 
+    }
+  };
+
+  // --- ŞİFREMİ UNUTTUM ---
+  const handleResetPassword = async () => {
+    const email = document.getElementById('loginEmail').value;
+    if (!email) return alert("Lütfen önce e-posta adresinizi kutucuğa yazın, ardından bu butona tıklayın.");
+    
+    const auth = getAuth();
+    try {
+      await sendPasswordResetEmail(auth, email);
+      alert("Şifre sıfırlama bağlantısı e-posta adresinize gönderildi!");
+    } catch (error) {
+      alert("Hata: Kayıtlı bir e-posta adresi bulunamadı.");
+    }
   };
 
   // --- ÜYEYİ ONAYLA ---
@@ -313,7 +342,7 @@ export default function App() {
           ) : (
             <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
               <span style={{fontSize: '0.8rem', fontWeight: 'bold'}}>{currentUser.adSoyad}</span>
-              <button onClick={() => { setCurrentUser(null); setActiveTab('map'); }} style={logoutBtn}>Çıkış</button>
+              <button onClick={async () => { await signOut(getAuth()); setCurrentUser(null); setActiveTab('map'); }} style={logoutBtn}>Çıkış</button>
             </div>
           )}
         </div>
@@ -546,13 +575,14 @@ export default function App() {
             <button onClick={() => setModalMode(null)} style={closeBtn}>✕</button>
             
             {modalMode === 'login' && (
-              <div style={{width: '100%'}}>
-                <h3 style={{marginBottom: '20px'}}>Sisteme Giriş</h3>
-                <input id="loginEmail" placeholder="E-posta" style={fIn} />
-                <input id="loginPass" type="password" placeholder="Şifre" style={fIn} />
-                <button onClick={handleLogin} style={actionBtn}>Giriş Yap</button>
-              </div>
-            )}
+          <div style={{width: '100%'}}>
+            <h3 style={{marginBottom: '20px'}}>Sisteme Giriş</h3>
+            <input id="loginEmail" placeholder="E-posta" style={fIn} />
+            <input id="loginPass" type="password" placeholder="Şifre" style={fIn} />
+            <button onClick={handleLogin} style={actionBtn}>Giriş Yap</button>
+            <button onClick={handleResetPassword} style={{background: 'transparent', border: 'none', color: '#1e40af', fontSize: '0.8rem', width: '100%', marginTop: '10px', cursor: 'pointer', textDecoration: 'underline'}}>Şifremi Unuttum</button>
+          </div>
+        )}
 
             {modalMode === 'register' && (
               <form onSubmit={handleRegister} style={{width: '100%'}}>
@@ -688,7 +718,7 @@ export default function App() {
                 )}
 
                 <div style={{display: 'flex', gap: '10px', marginTop: '15px'}}>
-                  <button onClick={() => window.open(`https://www.google.com/maps?layer=c&cbll=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} style={{...streetBtn, marginTop: 0, flex: 1}}>
+                  <button onClick={() => window.open(`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} style={{...streetBtn, marginTop: 0, flex: 1}}>
                     📷 Street View
                   </button>
                   {currentUser && currentUser.status === 'active' && (
@@ -718,7 +748,7 @@ export default function App() {
         <div style={infoBox}>
           <p style={{fontSize: '0.75rem', color: '#64748b', marginBottom: '12px'}}>{adres}</p>
           <div style={{display: 'flex', gap: '10px'}}>
-            <button onClick={() => window.open(`https://www.google.com/maps?layer=c&cbll=${secilenNokta.lat},${secilenNokta.lng}`, '_blank')} style={{...miniBtn, background: '#334155'}}>📷 Sokak</button>
+            <button onClick={() => window.open(`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${secilenNokta.lat},${secilenNokta.lng}`, '_blank')} style={{...miniBtn, background: '#334155'}}>📷 Sokak</button>
             <button disabled={!currentUser || currentUser.status === 'pending'} onClick={() => setModalMode('addStructure')} style={{...miniBtn, background: (!currentUser || currentUser.status === 'pending') ? '#ccc' : '#10b981'}}>
               {!currentUser ? "Giriş Yapın" : "➕ Yapı Ekle"}
             </button>
