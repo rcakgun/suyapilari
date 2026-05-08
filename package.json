@@ -1,0 +1,13 @@
+{
+  "dependencies": {
+    "cesium": "^1.141.0",
+    "firebase": "^12.13.0",
+    "framer-motion": "^12.38.0",
+    "mapbox-gl": "^3.23.1",
+    "react-map-gl": "^8.1.1",
+    "resium": "^1.21.0"
+  },
+  "devDependencies": {
+    "vite-plugin-cesium": "^1.2.23"
+  }
+}
