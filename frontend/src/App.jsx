@@ -11,6 +11,10 @@ const YAPI_KATALOGU = {
   'Maksem': '🛖', 'Ayazma': '💧', 'Şadırvan': '⛲', 'Bent': '🌊', 'Su Terazisi': '🗼'
 };
 
+const BOZULMA_DURUMLARI = ['İyi', 'Orta', 'Kötü'];
+const MALZEME_TURLERI = ['Taş', 'Tuğla', 'Ahşap', 'Mermer', 'Metal', 'Beton', 'Harç'];
+const BOZULMA_TURLERI = ['Çatlak', 'Kırık', 'Eksilme', 'Bitkilenme', 'Renk Değişimi', 'Kirlenme', 'Aşınma'];
+
 export default function App() {
   // --- STATES ---
   const [viewState, setViewState] = useState({ longitude: 28.97, latitude: 41.01, zoom: 14 });
@@ -35,12 +39,23 @@ export default function App() {
   useEffect(() => {
     const verileriGetir = async () => {
       try {
-        const querySnapshot = await getDocs(collection(db, "users"));
-        const veriListesi = [];
-        querySnapshot.forEach((doc) => {
-          veriListesi.push({ id: doc.id, ...doc.data() });
+        // Kullanıcıları Çek
+        const userSnapshot = await getDocs(collection(db, "users"));
+        const userListesi = [];
+        userSnapshot.forEach((doc) => {
+          userListesi.push({ id: doc.id, ...doc.data() });
         });
-        setAllUsers(veriListesi);
+        setAllUsers(userListesi);
+
+        // Yapıları Çek (Sayfa Yenilenince Gitmemesi İçin)
+        const structSnapshot = await getDocs(collection(db, "structures"));
+        const structListesi = [];
+        structSnapshot.forEach((doc) => {
+          structListesi.push({ id: doc.id, ...doc.data() });
+        });
+        setAllStructures(structListesi.filter(s => s.status === 'active'));
+        setPendingStructures(structListesi.filter(s => s.status === 'pending'));
+
       } catch (e) { console.error("Veri hatası:", e); }
     };
     verileriGetir();
@@ -110,7 +125,7 @@ export default function App() {
     } catch (error) { alert(error.message); }
   };
 
-  // --- YAPI EKLEME ---
+  // --- YAPI EKLEME (FIREBASE VE YENİ ALANLAR) ---
   const handleAddStructure = (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -121,32 +136,41 @@ export default function App() {
       r.readAsDataURL(file);
     }));
 
-    Promise.all(photoPromises).then(base64Photos => {
+    Promise.all(photoPromises).then(async (base64Photos) => {
       const newS = {
-        id: Date.now(),
         ad: fd.get('ad'),
         tur: fd.get('tur'),
         yil: fd.get('yil'),
         bilgi: fd.get('bilgi'),
+        bozulmaDurumu: fd.get('bozulmaDurumu'),
+        malzemeTuru: fd.getAll('malzemeTuru'),
+        bozulmaTuru: fd.getAll('bozulmaTuru'),
         koordinat: secilenNokta,
         adres,
         ekleyen: currentUser.email,
         fotolar: base64Photos,
         status: 'pending'
       };
-      setPendingStructures([...pendingStructures, newS]);
-      setModalMode(null);
-      alert("Yapı onaya gönderildi.");
+
+      try {
+        const docRef = await addDoc(collection(db, "structures"), newS);
+        newS.id = docRef.id;
+        setPendingStructures([...pendingStructures, newS]);
+        setModalMode(null);
+        alert("Yapı onaya gönderildi.");
+      } catch (err) {
+        console.error("Yapı eklenirken hata: ", err);
+      }
     });
   };
 
-  // --- YAPI GÜNCELLEME (YENİ EKLENDİ) ---
+  // --- YAPI GÜNCELLEME (FIREBASE VE YENİ ALANLAR) ---
   const handleEditStructure = (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const files = Array.from(e.target.fotos.files); 
     
-    const applyUpdate = (base64Photos) => {
+    const applyUpdate = async (base64Photos) => {
       const now = new Date();
       const timeStr = now.toLocaleDateString('tr-TR') + " " + now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
       
@@ -156,6 +180,9 @@ export default function App() {
         tur: fd.get('tur'),
         yil: fd.get('yil'),
         bilgi: fd.get('bilgi'),
+        bozulmaDurumu: fd.get('bozulmaDurumu'),
+        malzemeTuru: fd.getAll('malzemeTuru'),
+        bozulmaTuru: fd.getAll('bozulmaTuru'),
         lastUpdatedBy: currentUser.adSoyad,
         lastUpdatedDate: timeStr
       };
@@ -164,11 +191,16 @@ export default function App() {
         updatedStructure.fotolar = [...(detayYapi.fotolar || []), ...base64Photos];
       }
 
-      setAllStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
-      setPendingStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
-      setDetayYapi(updatedStructure);
-      setModalMode('viewDetail');
-      alert("Yapı bilgileri başarıyla güncellendi!");
+      try {
+        await updateDoc(doc(db, "structures", detayYapi.id), updatedStructure);
+        setAllStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
+        setPendingStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
+        setDetayYapi(updatedStructure);
+        setModalMode('viewDetail');
+        alert("Yapı bilgileri başarıyla güncellendi!");
+      } catch (err) {
+        console.error("Güncelleme hatası: ", err);
+      }
     };
 
     if (files.length > 0 && files[0].name !== "") {
@@ -178,6 +210,25 @@ export default function App() {
       Promise.all(photoPromises).then(applyUpdate);
     } else {
       applyUpdate([]);
+    }
+  };
+
+  // --- FOTOĞRAF SİLME (ADMİN İÇİN) ---
+  const handleDeletePhoto = async (indexToRemove) => {
+    if (!window.confirm("Bu fotoğrafı silmek istediğinize emin misiniz?")) return;
+
+    const yeniFotolar = [...detayYapi.fotolar];
+    yeniFotolar.splice(indexToRemove, 1);
+
+    const updatedStructure = { ...detayYapi, fotolar: yeniFotolar };
+
+    try {
+      await updateDoc(doc(db, "structures", detayYapi.id), { fotolar: yeniFotolar });
+      setDetayYapi(updatedStructure);
+      setAllStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
+      setPendingStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
+    } catch (err) {
+      console.error("Silme hatası: ", err);
     }
   };
 
@@ -307,7 +358,7 @@ export default function App() {
 
             <hr style={{margin: '40px 0', border: 'none', borderTop: '1px solid #e2e8f0'}} />
 
-            {/* YÖNETİCİ - ONAY BEKLEYEN YAPILAR (DETAYLI GÖRÜNÜM EKLENDİ) */}
+            {/* YÖNETİCİ - ONAY BEKLEYEN YAPILAR */}
             <h3 style={sectionTitle}>Onay Bekleyen Yapılar</h3>
             <div style={adminGrid}>
               {pendingStructures.map(s => (
@@ -324,18 +375,20 @@ export default function App() {
                     </div>
                   )}
 
-                  <p style={{fontSize: '0.7rem', color: '#10b981', fontWeight: 'bold', marginTop: '10px'}}>Ekleyen: {s.ekleyen}</p>
-
-                  <button 
-                    onClick={() => {
-                      setAllStructures([...allStructures, {...s, status: 'active'}]);
-                      setPendingStructures(pendingStructures.filter(x => x.id !== s.id));
-                      alert("Yapı haritaya eklendi!");
-                    }} 
-                    style={{...approveBtnMini, marginTop: '15px'}}
-                  >
-                    Yapıyı Onayla
-                  </button>
+                  <div style={{display: 'flex', gap: '5px', marginTop: '10px'}}>
+                    <button onClick={() => { setDetayYapi(s); setModalMode('editStructure'); }} style={{...approveBtnMini, flex: 1, background: '#3b82f6'}}>İncele / Düzenle</button>
+                    <button 
+                      onClick={async () => {
+                        await updateDoc(doc(db, "structures", s.id), { status: 'active' });
+                        setAllStructures([...allStructures, {...s, status: 'active'}]);
+                        setPendingStructures(pendingStructures.filter(x => x.id !== s.id));
+                        alert("Yapı haritaya eklendi!");
+                      }} 
+                      style={{...approveBtnMini, flex: 1}}
+                    >
+                      Onayla
+                    </button>
+                  </div>
                 </div>
               ))}
               {pendingStructures.length === 0 && <p style={{color: '#94a3b8'}}>Onay bekleyen yapı yok.</p>}
@@ -405,11 +458,32 @@ export default function App() {
               <form onSubmit={handleAddStructure} style={{width: '100%'}}>
                 <h3>Yeni Yapı Ekle</h3>
                 <input required name="ad" placeholder="Yapı Adı" style={fIn} />
-                <select name="tur" style={fIn}>
-                  {Object.keys(YAPI_KATALOGU).map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
+                <div style={{display: 'flex', gap: '10px'}}>
+                  <select name="tur" style={{...fIn, flex: 1}}>
+                    {Object.keys(YAPI_KATALOGU).map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <select name="bozulmaDurumu" style={{...fIn, flex: 1}} required>
+                    <option value="" disabled selected>Bozulma Durumu</option>
+                    {BOZULMA_DURUMLARI.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                
+                <label style={checkTitle}>Malzeme Türü:</label>
+                <div style={checkGroup}>
+                  {MALZEME_TURLERI.map(m => (
+                    <label key={m} style={checkItem}><input type="checkbox" name="malzemeTuru" value={m} /> {m}</label>
+                  ))}
+                </div>
+
+                <label style={checkTitle}>Bozulma Türü:</label>
+                <div style={checkGroup}>
+                  {BOZULMA_TURLERI.map(b => (
+                    <label key={b} style={checkItem}><input type="checkbox" name="bozulmaTuru" value={b} /> {b}</label>
+                  ))}
+                </div>
+
                 <input name="yil" placeholder="Yapım Yılı / Dönemi (Örn: 1720)" style={fIn} />
-                <textarea required name="bilgi" placeholder="Yapı Hakkında Detaylı Bilgi" style={{...fIn, height: '100px'}} />
+                <textarea required name="bilgi" placeholder="Yapı Hakkında Detaylı Bilgi" style={{...fIn, height: '80px'}} />
                 <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Yapı Fotoğrafları:</label>
                 <input required name="fotos" type="file" multiple style={fIn} />
                 <button type="submit" style={actionBtn}>Onaya Gönder</button>
@@ -421,11 +495,51 @@ export default function App() {
               <form onSubmit={handleEditStructure} style={{width: '100%'}}>
                 <h3>Yapı Bilgilerini Güncelle</h3>
                 <input required name="ad" defaultValue={detayYapi.ad} placeholder="Yapı Adı" style={fIn} />
-                <select name="tur" defaultValue={detayYapi.tur} style={fIn}>
-                  {Object.keys(YAPI_KATALOGU).map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
+                
+                <div style={{display: 'flex', gap: '10px'}}>
+                  <select name="tur" defaultValue={detayYapi.tur} style={{...fIn, flex: 1}}>
+                    {Object.keys(YAPI_KATALOGU).map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <select name="bozulmaDurumu" defaultValue={detayYapi.bozulmaDurumu} style={{...fIn, flex: 1}} required>
+                    <option value="" disabled>Bozulma Durumu</option>
+                    {BOZULMA_DURUMLARI.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+
+                <label style={checkTitle}>Malzeme Türü:</label>
+                <div style={checkGroup}>
+                  {MALZEME_TURLERI.map(m => (
+                    <label key={m} style={checkItem}>
+                      <input type="checkbox" name="malzemeTuru" value={m} defaultChecked={detayYapi.malzemeTuru?.includes(m)} /> {m}
+                    </label>
+                  ))}
+                </div>
+
+                <label style={checkTitle}>Bozulma Türü:</label>
+                <div style={checkGroup}>
+                  {BOZULMA_TURLERI.map(b => (
+                    <label key={b} style={checkItem}>
+                      <input type="checkbox" name="bozulmaTuru" value={b} defaultChecked={detayYapi.bozulmaTuru?.includes(b)} /> {b}
+                    </label>
+                  ))}
+                </div>
+
                 <input name="yil" defaultValue={detayYapi.yil} placeholder="Yapım Yılı / Dönemi" style={fIn} />
-                <textarea required name="bilgi" defaultValue={detayYapi.bilgi} placeholder="Yapı Hakkında Detaylı Bilgi" style={{...fIn, height: '100px'}} />
+                <textarea required name="bilgi" defaultValue={detayYapi.bilgi} placeholder="Yapı Hakkında Detaylı Bilgi" style={{...fIn, height: '80px'}} />
+                
+                {/* Admin veya normal kullanıcı fotoğraf silme / ekleme ekranı */}
+                <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Mevcut Fotoğraflar (Admin iseniz silebilirsiniz):</label>
+                <div style={{display: 'flex', gap: '8px', overflowX: 'auto', marginBottom: '15px'}}>
+                  {detayYapi.fotolar?.map((img, i) => (
+                    <div key={i} style={{position: 'relative', display: 'inline-block'}}>
+                      <img src={img} style={{height: '60px', borderRadius: '5px', objectFit: 'cover'}} alt="Yapı" />
+                      {currentUser?.role === 'admin' && (
+                        <button type="button" onClick={() => handleDeletePhoto(i)} style={{position: 'absolute', top: '-5px', right: '-5px', background: 'red', color: 'white', borderRadius: '50%', border: 'none', width: '20px', height: '20px', cursor: 'pointer', fontSize: '10px'}}>✕</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
                 <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Yeni Fotoğraflar Ekle (İsteğe Bağlı):</label>
                 <input name="fotos" type="file" multiple style={fIn} />
                 <button type="submit" style={actionBtn}>Güncellemeyi Kaydet</button>
@@ -437,7 +551,15 @@ export default function App() {
               <div style={{width: '100%'}}>
                 <h2 style={{margin: '0 0 10px 0', color: '#1e40af'}}>{detayYapi.ad}</h2>
                 <p style={{fontSize: '0.9rem', color: '#666', marginBottom: '15px'}}>{detayYapi.tur} {detayYapi.yil && `• ${detayYapi.yil}`}</p>
-                <p style={{lineHeight: '1.6', fontSize: '0.95rem', maxHeight: '200px', overflowY: 'auto'}}>{detayYapi.bilgi}</p>
+                
+                {/* YENİ ALANLARIN GÖSTERİMİ */}
+                <div style={{display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '15px'}}>
+                  {detayYapi.bozulmaDurumu && <span style={tagStyle}><strong>Durum:</strong> {detayYapi.bozulmaDurumu}</span>}
+                  {detayYapi.malzemeTuru?.length > 0 && <span style={tagStyle}><strong>Malzeme:</strong> {detayYapi.malzemeTuru.join(', ')}</span>}
+                  {detayYapi.bozulmaTuru?.length > 0 && <span style={tagStyle}><strong>Bozulma:</strong> {detayYapi.bozulmaTuru.join(', ')}</span>}
+                </div>
+
+                <p style={{lineHeight: '1.6', fontSize: '0.95rem', maxHeight: '150px', overflowY: 'auto'}}>{detayYapi.bilgi}</p>
                 
                 {/* GALERİ */}
                 <div style={{display: 'flex', gap: '10px', overflowX: 'auto', padding: '10px 0', borderBottom: '1px solid #eee'}}>
@@ -458,7 +580,7 @@ export default function App() {
                   </button>
                   {currentUser && currentUser.status === 'active' && (
                     <button onClick={() => setModalMode('editStructure')} style={{...streetBtn, marginTop: 0, flex: 1, background: '#1e40af'}}>
-                      ✏️ Düzenle
+                      ✏️ Düzenle / Fotoğraf Ekle
                     </button>
                   )}
                 </div>
@@ -501,13 +623,12 @@ const searchItem = { padding: '12px', fontSize: '0.8rem', cursor: 'pointer', bor
 const filterPanel = { position: 'absolute', top: 20, right: 20, background: 'white', padding: '20px', borderRadius: '20px', boxShadow: '0 4px 30px rgba(0,0,0,0.05)', width: '160px' };
 const filterItem = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#475569', marginBottom: '8px', cursor: 'pointer' };
 const modalOverlay = { position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 };
-const modalBox = { background: 'white', padding: '40px', borderRadius: '30px', width: '450px', position: 'relative', boxShadow: '0 25px 50px rgba(0,0,0,0.15)', boxSizing: 'border-box' };
+const modalBox = { background: 'white', padding: '40px', borderRadius: '30px', width: '450px', maxHeight: '90vh', overflowY: 'auto', position: 'relative', boxShadow: '0 25px 50px rgba(0,0,0,0.15)', boxSizing: 'border-box' };
 const fIn = { width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '15px', outline: 'none', boxSizing: 'border-box' };
 const actionBtn = { width: '100%', padding: '15px', background: '#1e40af', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', boxSizing: 'border-box' };
-const closeBtn = { position: 'absolute', top: 20, right: 20, border: 'none', background: '#f1f5f9', width: '30px', height: '30px', borderRadius: '50%', cursor: 'pointer' };
+const closeBtn = { position: 'absolute', top: 20, right: 20, border: 'none', background: '#f1f5f9', width: '30px', height: '30px', borderRadius: '50%', cursor: 'pointer', zIndex: 10 };
 const contentPage = { padding: '50px', overflowY: 'auto', height: 'calc(100vh - 70px)', boxSizing: 'border-box' };
 const adminGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' };
-const adminSection = { background: '#f8fafc', padding: '25px', borderRadius: '25px' };
 const adminCard = { background: 'white', padding: '15px', borderRadius: '15px', border: '1px solid #e2e8f0', boxShadow: '0 2px 10px rgba(0,0,0,0.02)' };
 const compactImg = { width: '70px', height: '70px', objectFit: 'cover', borderRadius: '8px', cursor: 'zoom-in' };
 const approveBtnMini = { padding: '8px 15px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.75rem', width: '100%' };
@@ -515,3 +636,7 @@ const sectionTitle = { fontSize: '1rem', color: '#94a3b8', fontWeight: '800', ma
 const infoBox = { position: 'absolute', bottom: 30, left: 20, background: 'white', padding: '25px', borderRadius: '25px', boxShadow: '0 20px 50px rgba(0,0,0,0.1)', width: '320px' };
 const miniBtn = { flex: 1, padding: '12px', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' };
 const streetBtn = { width: '100%', padding: '15px', background: '#334155', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', marginTop: '15px', cursor: 'pointer' };
+const checkTitle = { fontSize: '0.8rem', color: '#666', display: 'block', marginBottom: '8px', fontWeight: 'bold' };
+const checkGroup = { display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '15px' };
+const checkItem = { fontSize: '0.8rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' };
+const tagStyle = { fontSize: '0.75rem', background: '#f1f5f9', color: '#334155', padding: '4px 8px', borderRadius: '6px' };
