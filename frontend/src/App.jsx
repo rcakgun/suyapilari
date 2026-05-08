@@ -244,6 +244,18 @@ export default function App() {
     }
   };
 
+  // --- YAPIYI SİL (ADMİN) ---
+  const handleDeleteStructure = async (structureId) => {
+    if (!window.confirm("Bu yapıyı kalıcı olarak silmek istediğinize emin misiniz?")) return;
+    try {
+      await deleteDoc(doc(db, "structures", structureId));
+      setAllStructures(prev => prev.filter(s => s.id !== structureId));
+      setPendingStructures(prev => prev.filter(s => s.id !== structureId));
+      setModalMode(null);
+      alert("Yapı başarıyla silindi!");
+    } catch (error) { alert("Hata: " + error.message); }
+  };
+
   // --- ARAMA ---
   useEffect(() => {
     if (aramaMetni.length < 3) return;
@@ -403,6 +415,9 @@ export default function App() {
                       style={{...approveBtnMini, flex: 1}}
                     >
                       Onayla
+                    </button>
+                    <button onClick={() => handleDeleteStructure(s.id)} style={{...approveBtnMini, flex: 1, background: '#ef4444'}}>
+                      Sil
                     </button>
                   </div>
                 </div>
@@ -653,6 +668,11 @@ export default function App() {
                   {currentUser && currentUser.status === 'active' && (
                     <button onClick={() => setModalMode('editStructure')} style={{...streetBtn, marginTop: 0, flex: 1, background: '#1e40af'}}>
                       ✏️ Düzenle / Fotoğraf Ekle
+                    </button>
+                  )}
+                  {currentUser?.role === 'admin' && (
+                    <button onClick={() => handleDeleteStructure(detayYapi.id)} style={{...streetBtn, marginTop: 0, flex: 1, background: '#ef4444'}}>
+                      🗑️ Yapıyı Sil
                     </button>
                   )}
                 </div>
