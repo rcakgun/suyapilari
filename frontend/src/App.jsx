@@ -4,7 +4,8 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 // firebase.js dosyasından veritabanı bağlantısını çekiyoruz
 import { db } from './firebase'; 
 // Firebase'in ekleme, çekme ve güncelleme özelliklerini alıyoruz
-import { collection, addDoc, getDocs, updateDoc, doc } from "firebase/firestore";
+import { db } from './firebase'; 
+import { collection, addDoc, getDocs, updateDoc, doc, query, where } from "firebase/firestore";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -81,6 +82,53 @@ useEffect(() => {
   };
   if (photoFile) reader.readAsDataURL(photoFile);
 };
+
+// --- YENİ LOGIN SİSTEMİ ---
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('loginEmail').value;
+    const sifre = document.getElementById('loginPass').value;
+
+    if (email === 'admin@site.com' && sifre === 'Admin123') {
+      setCurrentUser({ adSoyad: 'Site Sahibi', role: 'admin', status: 'active', email: 'admin@site.com' });
+      setModalMode(null);
+      return;
+    }
+
+    try {
+      const q = query(collection(db, "users"), where("email", "==", email), where("sifre", "==", sifre));
+      const querySnapshot = await getDocs(q);
+
+      if (querySnapshot.empty) {
+        alert("Hatalı e-posta veya şifre!");
+        return;
+      }
+
+      const userData = querySnapshot.docs[0].data();
+      const userId = querySnapshot.docs[0].id;
+
+      if (userData.status === 'pending') {
+        alert("Hesabınız henüz onaylanmamış.");
+      } else {
+        setCurrentUser({ id: userId, ...userData });
+        setModalMode(null);
+      }
+    } catch (error) {
+      console.error("Giriş hatası:", error);
+    }
+  };
+
+  // --- KULLANICI ONAYLAMA SİSTEMİ ---
+  const handleApproveUser = async (userId) => {
+    try {
+      const userRef = doc(db, "users", userId);
+      await updateDoc(userRef, { status: 'active' });
+      setAllUsers(prev => prev.map(u => u.id === userId ? {...u, status: 'active'} : u));
+      alert("Kullanıcı başarıyla onaylandı!");
+    } catch (error) {
+      alert("Hata: " + error.message);
+    }
+  };
 
   // --- YAPI EKLEME (FOTOĞRAFLI & ONAYLI) ---
   const handleAddStructure = (e) => {
@@ -241,7 +289,7 @@ useEffect(() => {
                     <p><strong>{u.adSoyad}</strong> ({u.ogrenciNo})</p>
                     <p style={{fontSize: '0.7rem'}}>{u.email}</p>
                     <img src={u.kimlikFoto} style={{width: '100%', borderRadius: '10px', margin: '10px 0'}} alt="Öğrenci Kimliği" />
-                    <button onClick={() => setAllUsers(allUsers.map(x => x.id === u.id ? {...x, status: 'active'} : x))} style={approveBtn}>Aktivasyonu Onayla</button>
+                    <button onClick={() => handleApproveUser(u.id)} style={approveBtn}>Aktivasyonu Onayla</button>
                   </div>
                 ))}
               </section>
@@ -304,17 +352,7 @@ useEffect(() => {
                 <h3>Sisteme Giriş</h3>
                 <input id="loginEmail" placeholder="E-posta" style={fIn} />
                 <input id="loginPass" type="password" placeholder="Şifre" style={fIn} />
-                <button onClick={() => {
-                   if(document.getElementById('loginEmail').value === 'admin@site.com') {
-                     setCurrentUser({ adSoyad: 'Site Sahibi', role: 'admin', status: 'active', email: 'admin@site.com' });
-                   } else {
-                     const u = allUsers.find(x => x.email === document.getElementById('loginEmail').value);
-                     if(!u) return alert("Kullanıcı bulunamadı");
-                     if(u.status === 'pending') return alert("Hesabınız henüz aktive edilmedi");
-                     setCurrentUser(u);
-                   }
-                   setModalMode(null);
-                }} style={actionBtn}>Giriş Yap</button>
+               <button onClick={handleLogin} style={actionBtn}>Giriş Yap</button>
                 <p style={{fontSize: '0.7rem', marginTop: '10px', color: '#666'}}>* Test için önce kayıt olun, sonra Yönetici ile kendinizi onaylayın.</p>
               </div>
             )}
