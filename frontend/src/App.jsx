@@ -1,11 +1,10 @@
-import { collection, addDoc, getDocs, updateDoc, doc, query, where } from "firebase/firestore";
 import React, { useState, useEffect, useRef } from 'react';
 import { Map, Marker, NavigationControl } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 // firebase.js dosyasından veritabanı bağlantısını çekiyoruz
 import { db } from './firebase'; 
-// Firebase'in ekleme, çekme ve güncelleme özelliklerini alıyoruz
-import { db } from './firebase'; 
+import { collection, addDoc, getDocs, updateDoc, doc, query, where } from "firebase/firestore";
+
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -136,7 +135,7 @@ useEffect(() => {
     if (currentUser.status !== 'active') return alert("Hesabınız henüz aktive edilmedi!");
 
     const fd = new FormData(e.target);
-    const files = Array.from(e.target.fotolar.files);
+    const files = Array.from(e.target.fotos.files);
     const photoPromises = files.map(file => {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -380,7 +379,7 @@ useEffect(() => {
                 <div style={{display: 'flex', gap: '10px', overflowX: 'auto', padding: '10px 0'}}>
                   {detayYapi.fotolar?.map((img, i) => <img key={i} src={img} style={{height: '140px', borderRadius: '10px'}} alt="Yapı" />)}
                 </div>
-                <button onClick={() => window.open(`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} style={streetBtn}>📷 Street View Bağlantısı</button>
+                <button onClick={() => window.open(`https://www.google.com/maps?q=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} style={streetBtn}>📷 Street View Bağlantısı</button>
               </div>
             )}
           </div>
@@ -392,7 +391,7 @@ useEffect(() => {
         <div style={infoBox}>
           <p style={{fontSize: '0.75rem', color: '#64748b', marginBottom: '12px'}}>{adres}</p>
           <div style={{display: 'flex', gap: '10px'}}>
-            <button onClick={() => window.open(`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${secilenNokta.lat},${secilenNokta.lng}`, '_blank')} style={{...miniBtn, background: '#334155'}}>📷 Sokak</button>
+            <button onClick={() => window.open(`https://www.google.com/maps?q=${secilenNokta.lat},${secilenNokta.lng}`, '_blank')} style={{...miniBtn, background: '#334155'}}>📷 Sokak</button>
             <button 
               disabled={!currentUser || currentUser.status === 'pending'}
               onClick={() => setModalMode('addStructure')} 
