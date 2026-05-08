@@ -1,24 +1,16 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
 import { getAuth } from "firebase/auth";
 
-// BURAYI FİREBASE'DEN ALDIĞIN KENDİ AYARLARINLA DEĞİŞTİR
 const firebaseConfig = {
-  apiKey: "SENIN_API_KEY_IN",
-  authDomain: "suyapiarsivi.firebaseapp.com",
-  projectId: "suyapiarsivi",
-  storageBucket: "suyapiarsivi.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:1234567:web:abcde"
+  apiKey: "AIzaSyDMgoQvitvm8hIwz1jv03LSeO3j8EpMvGo",
+  authDomain: "suarsivi.firebaseapp.com",
+  projectId: "suarsivi",
+  storageBucket: "suarsivi.firebasestorage.app",
+  messagingSenderId: "935159384605",
+  appId: "1:935159384605:web:3839abb868a36f6c2a94f4"
 };
 
-// Firebase'i başlat
 const app = initializeApp(firebaseConfig);
-
-// Veritabanı (Yazıları saklamak için)
 export const db = getFirestore(app);
-// Depolama (Fotoğrafları saklamak için)
-export const storage = getStorage(app);
-// Üyelik sistemi (Kimlik doğrulama için)
 export const auth = getAuth(app);

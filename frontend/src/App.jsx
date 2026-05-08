@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Map, Marker, NavigationControl } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
+// firebase.js dosyasından veritabanı bağlantısını çekiyoruz
+import { db } from './firebase'; 
+// Firebase'in ekleme, çekme ve güncelleme özelliklerini alıyoruz
+import { collection, addDoc, getDocs, updateDoc, doc } from "firebase/firestore";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -19,6 +23,20 @@ export default function App() {
   const [pendingStructures, setPendingStructures] = useState([]); // Onay bekleyenler
   const [comments, setComments] = useState([]);
   const [activeFiltreler, setAktifFiltreler] = useState(Object.keys(YAPI_KATALOGU));
+  // Sayfa açıldığında veya Admin panele girdiğinde çalışacak kod:
+useEffect(() => {
+  const verileriGetir = async () => {
+    const querySnapshot = await getDocs(collection(db, "users"));
+    const veriListesi = [];
+    querySnapshot.forEach((doc) => {
+      // Her bir dökümanı id'si ile beraber listeye ekliyoruz
+      veriListesi.push({ id: doc.id, ...doc.data() });
+    });
+    setAllUsers(veriListesi); // Artık allUsers listesi buluttan geliyor!
+  };
+  
+  verileriGetir();
+}, []); // Köşeli parantez boş: Sadece sayfa ilk açıldığında çalışır
 
   // UI STATES
   const [activeTab, setActiveTab] = useState('map');
@@ -32,33 +50,37 @@ export default function App() {
   const mapRef = useRef(null);
 
   // --- ÜYE KAYIT (MAİL & KİMLİK FOTO) ---
-  const handleRegister = (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const reader = new FileReader();
-    const photoFile = fd.get('kimlikFoto');
+  const handleRegister = async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  
+  // Fotoğrafı okuma işlemi (Aynı kalıyor)
+  const photoFile = fd.get('kimlikFoto');
+  const reader = new FileReader();
 
-    const saveUser = (photoBase64) => {
-      const newUser = {
-        id: Date.now(),
+  reader.onloadend = async () => {
+    try {
+      // DİKKAT: Burada veriyi Firebase'deki "users" isimli kutuya (koleksiyon) atıyoruz
+      await addDoc(collection(db, "users"), {
         adSoyad: fd.get('adSoyad'),
         email: fd.get('email'),
-        sifre: fd.get('sifre'),
+        sifre: fd.get('sifre'), // Normalde şifrelenmelidir, şimdilik böyle kalsın
         ogrenciNo: fd.get('ogrenciNo'),
-        kimlikFoto: photoBase64,
+        kimlikFoto: reader.result, 
         role: 'member',
-        status: 'pending' // Admin aktivasyonu şart!
-      };
-      setAllUsers([...allUsers, newUser]);
-      setModalMode(null);
-      alert("Başvurunuz alındı. Site sahibi kimliğinizi onayladıktan sonra giriş yapabilirsiniz.");
-    };
+        status: 'pending', // Sen onaylayana kadar bekleyecek
+        kayitTarihi: new Date().toISOString()
+      });
 
-    if (photoFile) {
-        reader.onloadend = () => saveUser(reader.result);
-        reader.readAsDataURL(photoFile);
+      setModalMode(null);
+      alert("Harika! Başvurun Firebase bulutuna kaydedildi. Yönetici onayını bekleyebilirsin.");
+    } catch (error) {
+      console.error("Firebase'e yazarken hata oluştu: ", error);
+      alert("Bir hata oluştu, lütfen internet bağlantını kontrol et.");
     }
   };
+  if (photoFile) reader.readAsDataURL(photoFile);
+};
 
   // --- YAPI EKLEME (FOTOĞRAFLI & ONAYLI) ---
   const handleAddStructure = (e) => {
