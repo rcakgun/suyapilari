@@ -12,7 +12,6 @@ const YAPI_KATALOGU = {
 };
 
 export default function App() {
-  // --- STATES ---
   const [viewState, setViewState] = useState({ longitude: 28.97, latitude: 41.01, zoom: 14 });
   const [currentUser, setCurrentUser] = useState(null); 
   const [allUsers, setAllUsers] = useState([]); 
@@ -31,7 +30,6 @@ export default function App() {
 
   const mapRef = useRef(null);
 
-  // --- FIREBASE VERİ ÇEKME ---
   useEffect(() => {
     const verileriGetir = async () => {
       try {
@@ -41,23 +39,32 @@ export default function App() {
           veriListesi.push({ id: doc.id, ...doc.data() });
         });
         setAllUsers(veriListesi);
-      } catch (e) { console.error("Veri çekme hatası:", e); }
+      } catch (e) { console.error("Veri hatası:", e); }
     };
     verileriGetir();
-  }, []);
+  }, [activeTab]); // Tab değiştikçe listeyi tazele
 
-  // --- ÜYE KAYIT ---
+  // --- KAYIT OL (Mükerrer Kontrolü Eklendi) ---
   const handleRegister = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const photoFile = fd.get('kimlikFoto');
-    const reader = new FileReader();
+    const email = fd.get('email');
 
-    reader.onloadend = async () => {
-      try {
+    try {
+      // Önce bu mail var mı kontrol et
+      const q = query(collection(db, "users"), where("email", "==", email));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        return alert("Bu e-posta adresi ile zaten bir başvuru yapılmış!");
+      }
+
+      const photoFile = fd.get('kimlikFoto');
+      const reader = new FileReader();
+
+      reader.onloadend = async () => {
         await addDoc(collection(db, "users"), {
           adSoyad: fd.get('adSoyad'),
-          email: fd.get('email'),
+          email: email,
           sifre: fd.get('sifre'),
           ogrenciNo: fd.get('ogrenciNo'),
           kimlikFoto: reader.result, 
@@ -66,13 +73,12 @@ export default function App() {
           kayitTarihi: new Date().toISOString()
         });
         setModalMode(null);
-        alert("Harika! Başvurun Firebase bulutuna kaydedildi.");
-      } catch (error) { alert("Hata: " + error.message); }
-    };
-    if (photoFile) reader.readAsDataURL(photoFile);
+        alert("Başvurunuz alındı. Yönetici onayı bekliyor.");
+      };
+      if (photoFile) reader.readAsDataURL(photoFile);
+    } catch (error) { alert("Hata: " + error.message); }
   };
 
-  // --- GİRİŞ YAP ---
   const handleLogin = async (e) => {
     e.preventDefault();
     const email = document.getElementById('loginEmail').value;
@@ -87,27 +93,23 @@ export default function App() {
     try {
       const q = query(collection(db, "users"), where("email", "==", email), where("sifre", "==", sifre));
       const querySnapshot = await getDocs(q);
-      if (querySnapshot.empty) return alert("Hatalı e-posta veya şifre!");
-
+      if (querySnapshot.empty) return alert("Hatalı bilgiler!");
       const userData = querySnapshot.docs[0].data();
-      if (userData.status === 'pending') return alert("Hesabınız henüz onaylanmamış.");
-      
+      if (userData.status === 'pending') return alert("Hesabınız henüz onaylanmadı.");
       setCurrentUser({ id: querySnapshot.docs[0].id, ...userData });
       setModalMode(null);
-    } catch (error) { console.error("Giriş hatası:", error); }
+    } catch (error) { console.error(error); }
   };
 
-  // --- KULLANICI ONAYLA ---
   const handleApproveUser = async (userId) => {
     try {
       const userRef = doc(db, "users", userId);
       await updateDoc(userRef, { status: 'active' });
       setAllUsers(prev => prev.map(u => u.id === userId ? {...u, status: 'active'} : u));
-      alert("Kullanıcı başarıyla onaylandı!");
-    } catch (error) { alert("Hata: " + error.message); }
+      alert("Üye başarıyla aktif edildi.");
+    } catch (error) { alert(error.message); }
   };
 
-  // --- YAPI EKLEME ---
   const handleAddStructure = (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -133,28 +135,15 @@ export default function App() {
       };
       setPendingStructures([...pendingStructures, newS]);
       setModalMode(null);
-      setSecilenNokta(null);
       alert("Yapı onaya gönderildi.");
     });
   };
 
-  // --- ARAMA MOTORU GÜNCELLEME ---
-  useEffect(() => {
-    if (aramaMetni.length < 3) return;
-    const t = setTimeout(async () => {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(aramaMetni)}&format=json&countrycodes=tr&limit=5`);
-      const data = await res.json();
-      setOneriler(data);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [aramaMetni]);
-
   return (
-    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#fdfdfd' }}>
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#fdfdfd', fontFamily: 'sans-serif' }}>
       
-      {/* ÜST NAVİGASYON */}
       <nav style={navStyle}>
-        <div style={{ fontWeight: '800', letterSpacing: '1px', fontSize: '1.2rem', color: '#1e40af' }}>SU MİMARİSİ <span style={{fontWeight: '300'}}>ARŞİVİ</span></div>
+        <div style={{ fontWeight: '800', fontSize: '1.2rem', color: '#1e40af' }}>SU MİMARİSİ ARŞİVİ</div>
         <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
           <button onClick={() => setActiveTab('map')} style={menuItem(activeTab === 'map')}>Harita</button>
           {currentUser && <button onClick={() => setActiveTab('profile')} style={menuItem(activeTab === 'profile')}>Profilim</button>}
@@ -173,7 +162,7 @@ export default function App() {
         </div>
       </nav>
 
-      <div style={{ flex: 1, position: 'relative' }}>
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         {activeTab === 'map' && (
           <>
             <Map
@@ -182,14 +171,6 @@ export default function App() {
               onMove={evt => setViewState(evt.viewState)}
               mapStyle="mapbox://styles/mapbox/streets-v12"
               mapboxAccessToken={MAPBOX_TOKEN}
-              onLoad={(e) => {
-                const map = e.target;
-                map.getStyle().layers.forEach((layer) => {
-                  if (layer.layout && layer.layout['text-field']) {
-                    map.setLayoutProperty(layer.id, 'text-field', ['coalesce', ['get', 'name_tr'], ['get', 'name']]);
-                  }
-                });
-              }}
               onClick={async (e) => {
                 const { lng, lat } = e.lngLat;
                 setSecilenNokta({ lng, lat });
@@ -207,82 +188,46 @@ export default function App() {
               ))}
               {secilenNokta && <Marker longitude={secilenNokta.lng} latitude={secilenNokta.lat} color="#ef4444" />}
             </Map>
-
-            {/* ARAMA ÇUBUĞU */}
-            <div style={{ position: 'absolute', top: 20, left: 20, width: '320px', zIndex: 10 }}>
-              <input type="text" placeholder="Yapı veya semt ara..." value={aramaMetni} onChange={e => setAramaMetni(e.target.value)} style={searchInput} />
-              {oneriler.length > 0 && (
-                <div style={searchList}>
-                  {oneriler.map((o, i) => (
-                    <div key={i} onClick={() => {
-                      const lat = parseFloat(o.lat); const lon = parseFloat(o.lon);
-                      mapRef.current?.flyTo({ center: [lon, lat], zoom: 17 });
-                      setSecilenNokta({ lng: lon, lat });
-                      setOneriler([]);
-                    }} style={searchItem}>{o.display_name}</div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* FİLTRELER */}
-            <div style={filterPanel}>
-              <div style={{fontSize: '0.7rem', fontWeight: '800', color: '#94a3b8', marginBottom: '10px'}}>KOLEKSİYON</div>
-              {Object.keys(YAPI_KATALOGU).map(t => (
-                <label key={t} style={filterItem}>
-                  <input type="checkbox" checked={activeFiltreler.includes(t)} onChange={() => setAktifFiltreler(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])} />
-                  <span>{YAPI_KATALOGU[t]} {t}</span>
-                </label>
-              ))}
-            </div>
           </>
         )}
 
-        {/* ADMIN PANELI */}
         {activeTab === 'admin' && (
           <div style={contentPage}>
-            <h2 style={{color: '#1e40af'}}>Yönetim Merkezi</h2>
+            <h2 style={{color: '#1e40af', marginBottom: '30px'}}>Sistem Yönetimi</h2>
+            
+            {/* BEKLEYEN BAŞVURULAR (KOMPAKT) */}
+            <h3 style={sectionTitle}>Onay Bekleyen Başvurular</h3>
             <div style={adminGrid}>
-              <section style={adminSection}>
-                <h3>Üyelik Başvuruları</h3>
-                {allUsers.filter(u => u.status === 'pending').map(u => (
-                  <div key={u.id} style={adminCard}>
-                    <p><strong>{u.adSoyad}</strong> ({u.ogrenciNo})</p>
-                    <p style={{fontSize: '0.7rem'}}>{u.email}</p>
+              {allUsers.filter(u => u.status === 'pending').map(u => (
+                <div key={u.id} style={adminCard}>
+                  <div style={{display: 'flex', gap: '15px'}}>
                     <img 
                       src={u.kimlikFoto} 
                       onClick={() => setZoomPhoto(u.kimlikFoto)}
-                      style={{width: '100%', borderRadius: '10px', margin: '10px 0', cursor: 'zoom-in'}} 
+                      style={compactImg} 
                       alt="Kimlik" 
                     />
-                    <button onClick={() => handleApproveUser(u.id)} style={approveBtn}>Aktivasyonu Onayla</button>
+                    <div style={{flex: 1}}>
+                      <p style={{margin: '0 0 5px 0', fontWeight: 'bold'}}>{u.adSoyad}</p>
+                      <p style={{fontSize: '0.7rem', color: '#666', margin: '0 0 10px 0'}}>{u.email} <br/> No: {u.ogrenciNo}</p>
+                      <button onClick={() => handleApproveUser(u.id)} style={approveBtnMini}>Onayla</button>
+                    </div>
                   </div>
-                ))}
-              </section>
-              <section style={adminSection}>
-                <h3>Yapı Onayları</h3>
-                {pendingStructures.map(s => (
-                  <div key={s.id} style={adminCard}>
-                    <p><strong>{s.ad}</strong> ({s.tur})</p>
-                    <button onClick={() => { setAllStructures([...allStructures, {...s, status: 'active'}]); setPendingStructures(pendingStructures.filter(x => x.id !== s.id)); }} style={approveBtn}>Yapıyı Onayla</button>
-                  </div>
-                ))}
-              </section>
+                </div>
+              ))}
+              {allUsers.filter(u => u.status === 'pending').length === 0 && <p>Yeni başvuru yok.</p>}
             </div>
-          </div>
-        )}
 
-        {/* PROFİLİM */}
-        {activeTab === 'profile' && (
-          <div style={contentPage}>
-            <h2>{currentUser.adSoyad} - Eklediğim Yapılar</h2>
+            <hr style={{margin: '40px 0', border: 'none', borderTop: '1px solid #eee'}} />
+
+            {/* KABUL EDİLEN ÜYELER LİSTESİ */}
+            <h3 style={sectionTitle}>Aktif Üyeler</h3>
             <div style={adminGrid}>
-              {allStructures.concat(pendingStructures).filter(s => s.ekleyen === currentUser.email).map(s => (
-                <div key={s.id} style={adminCard}>
-                  <h4>{s.ad}</h4>
-                  <span style={{fontSize: '0.7rem', padding: '4px 8px', borderRadius: '5px', background: s.status === 'active' ? '#dcfce7' : '#fef9c3'}}>
-                    {s.status === 'active' ? 'YAYINDA' : 'ONAY BEKLİYOR'}
-                  </span>
+              {allUsers.filter(u => u.status === 'active' && u.role !== 'admin').map(u => (
+                <div key={u.id} style={{...adminCard, opacity: 0.8}}>
+                   <p style={{margin: '0 0 5px 0', fontWeight: 'bold'}}>{u.adSoyad}</p>
+                   <p style={{fontSize: '0.7rem', color: '#666'}}>{u.email} - No: {u.ogrenciNo}</p>
+                   <span style={{fontSize: '0.6rem', color: '#10b981', fontWeight: 'bold'}}>● AKTİF</span>
                 </div>
               ))}
             </div>
@@ -290,89 +235,79 @@ export default function App() {
         )}
       </div>
 
-      {/* MODALLAR */}
       {modalMode && (
         <div style={modalOverlay}>
           <div style={modalBox}>
             <button onClick={() => setModalMode(null)} style={closeBtn}>✕</button>
             {modalMode === 'login' && (
-              <div>
-                <h3>Sisteme Giriş</h3>
+              <div style={{width: '100%'}}>
+                <h3>Giriş Yap</h3>
                 <input id="loginEmail" placeholder="E-posta" style={fIn} />
                 <input id="loginPass" type="password" placeholder="Şifre" style={fIn} />
-                <button onClick={handleLogin} style={actionBtn}>Giriş Yap</button>
+                <button onClick={handleLogin} style={actionBtn}>Giriş</button>
               </div>
             )}
             {modalMode === 'register' && (
-              <form onSubmit={handleRegister}>
-                <h3>Yeni Üye Başvurusu</h3>
+              <form onSubmit={handleRegister} style={{width: '100%'}}>
+                <h3>Üye Ol</h3>
                 <input required name="adSoyad" placeholder="Ad Soyad" style={fIn} />
                 <input required name="email" type="email" placeholder="E-posta" style={fIn} />
                 <input required name="sifre" type="password" placeholder="Şifre" style={fIn} />
                 <input required name="ogrenciNo" placeholder="Öğrenci No" style={fIn} />
                 <input required name="kimlikFoto" type="file" style={fIn} />
-                <button style={actionBtn}>Kayıt Başvurusunu Tamamla</button>
-              </form>
-            )}
-            {modalMode === 'addStructure' && (
-              <form onSubmit={handleAddStructure}>
-                <h3>Yeni Yapı Ekle</h3>
-                <input required name="ad" placeholder="Yapı Adı" style={fIn} />
-                <select name="tur" style={fIn}>{Object.keys(YAPI_KATALOGU).map(t => <option key={t}>{t}</option>)}</select>
-                <textarea required name="bilgi" placeholder="Mimari Bilgi" style={{...fIn, height: '100px'}} />
-                <input required name="fotos" type="file" multiple style={fIn} />
-                <button style={actionBtn}>Onaya Gönder</button>
+                <button style={actionBtn}>Kaydı Tamamla</button>
               </form>
             )}
             {modalMode === 'viewDetail' && detayYapi && (
-              <div>
-                <h2>{detayYapi.ad}</h2>
-                <p>{detayYapi.bilgi}</p>
-                <button onClick={() => window.open(`https://www.google.com/maps?q=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} style={streetBtn}>Google Haritalarda Aç</button>
+              <div style={{width: '100%'}}>
+                <h2 style={{margin: 0, color: '#1e40af'}}>{detayYapi.ad}</h2>
+                <p style={{fontSize: '0.8rem', color: '#666'}}>{detayYapi.tur}</p>
+                <p style={{fontSize: '0.9rem', lineHeight: '1.5'}}>{detayYapi.bilgi}</p>
+                <button 
+                  onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} 
+                  style={streetBtn}
+                >
+                  📷 Street View'da Aç
+                </button>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* FOTOĞRAF BÜYÜTME */}
       {zoomPhoto && (
         <div onClick={() => setZoomPhoto(null)} style={{...modalOverlay, background: 'rgba(0,0,0,0.9)', zIndex: 3000}}>
-          <img src={zoomPhoto} style={{maxHeight: '90vh', maxWidth: '90vw', borderRadius: '10px'}} alt="Büyük Görünüm" />
+          <img src={zoomPhoto} style={{maxHeight: '90vh', maxWidth: '90vw', borderRadius: '10px'}} alt="Zoom" />
         </div>
       )}
 
-      {secilenNokta && activeTab === 'map' && !modalMode && (
+      {secilenNokta && activeTab === 'map' && (
         <div style={infoBox}>
-          <p style={{fontSize: '0.75rem', marginBottom: '10px'}}>{adres}</p>
-          <button onClick={() => setModalMode('addStructure')} style={{...miniBtn, background: '#10b981'}}>➕ Yapı Ekle</button>
+          <p style={{fontSize: '0.7rem', color: '#666', marginBottom: '10px'}}>{adres}</p>
+          <button onClick={() => setModalMode('addStructure')} style={miniBtn}>➕ Yapı Ekle</button>
         </div>
       )}
     </div>
   );
 }
 
-// --- TÜM STİLLER (400 SATIRI TAMAMLAYAN KISIM) ---
+// --- STİLLER ---
 const navStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 30px', background: 'white', borderBottom: '1px solid #e2e8f0', zIndex: 100 };
 const menuItem = (active) => ({ background: 'transparent', border: 'none', color: active ? '#1e40af' : '#64748b', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem' });
-const loginBtn = { padding: '8px 20px', borderRadius: '10px', border: '1px solid #1e40af', color: '#1e40af', background: 'white', fontWeight: 'bold', cursor: 'pointer' };
-const registerBtn = { padding: '8px 20px', borderRadius: '10px', border: 'none', background: '#1e40af', color: 'white', fontWeight: 'bold', cursor: 'pointer' };
-const logoutBtn = { background: '#fee2e2', color: '#dc2626', border: 'none', padding: '8px 15px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' };
-const searchInput = { width: '100%', padding: '15px', borderRadius: '15px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', outline: 'none' };
-const searchList = { background: 'white', marginTop: '5px', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', overflow: 'hidden' };
-const searchItem = { padding: '12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' };
-const filterPanel = { position: 'absolute', top: 20, right: 20, background: 'white', padding: '20px', borderRadius: '20px', boxShadow: '0 4px 30px rgba(0,0,0,0.05)', width: '180px' };
-const filterItem = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#475569', marginBottom: '8px', cursor: 'pointer' };
-const modalOverlay = { position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 };
-const modalBox = { background: 'white', padding: '30px', borderRadius: '25px', width: '400px', position: 'relative' };
-const fIn = { width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ddd', marginBottom: '10px', outline: 'none' };
+const loginBtn = { padding: '8px 20px', borderRadius: '10px', border: '1px solid #1e40af', color: '#1e40af', background: 'white', cursor: 'pointer', fontWeight: 'bold' };
+const registerBtn = { padding: '8px 20px', borderRadius: '10px', border: 'none', background: '#1e40af', color: 'white', cursor: 'pointer', fontWeight: 'bold' };
+const logoutBtn = { background: '#fee2e2', color: '#dc2626', border: 'none', padding: '8px 15px', borderRadius: '10px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold' };
+const contentPage = { padding: '40px', overflowY: 'auto', height: 'calc(100vh - 70px)', boxSizing: 'border-box' };
+const adminGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' };
+const adminCard = { background: 'white', padding: '15px', borderRadius: '15px', border: '1px solid #eee', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' };
+const compactImg = { width: '80px', height: '80px', objectFit: 'cover', borderRadius: '8px', cursor: 'zoom-in' };
+const approveBtnMini = { padding: '8px 15px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.75rem' };
+const sectionTitle = { fontSize: '1.1rem', color: '#64748b', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '1px' };
+const modalOverlay = { position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' };
+const modalBox = { background: 'white', padding: '30px', borderRadius: '25px', width: '400px', position: 'relative', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' };
+const fIn = { width: '100%', padding: '12px', marginBottom: '10px', borderRadius: '10px', border: '1px solid #ddd', boxSizing: 'border-box' };
 const actionBtn = { width: '100%', padding: '15px', background: '#1e40af', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' };
-const closeBtn = { position: 'absolute', top: 15, right: 15, border: 'none', background: '#f1f5f9', borderRadius: '50%', cursor: 'pointer', width: '30px', height: '30px' };
-const contentPage = { padding: '50px', overflowY: 'auto', height: '100%' };
-const adminGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' };
-const adminSection = { background: '#f8fafc', padding: '20px', borderRadius: '20px' };
-const adminCard = { background: 'white', padding: '15px', borderRadius: '15px', border: '1px solid #e2e8f0', marginBottom: '15px' };
-const approveBtn = { width: '100%', padding: '10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' };
-const infoBox = { position: 'absolute', bottom: 30, left: 20, background: 'white', padding: '20px', borderRadius: '25px', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', width: '300px' };
-const miniBtn = { width: '100%', padding: '12px', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' };
-const streetBtn = { width: '100%', padding: '12px', background: '#334155', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', marginTop: '10px', cursor: 'pointer' };
+const closeBtn = { position: 'absolute', top: 15, right: 15, border: 'none', background: '#eee', borderRadius: '50%', cursor: 'pointer', width: '30px', height: '30px' };
+const infoBox = { position: 'absolute', bottom: 20, left: 20, background: 'white', padding: '15px', borderRadius: '15px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', width: '280px' };
+const miniBtn = { width: '100%', padding: '10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold' };
+const streetBtn = { width: '100%', padding: '12px', background: '#334155', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', marginTop: '15px', cursor: 'pointer' };
