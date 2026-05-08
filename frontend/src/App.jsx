@@ -126,7 +126,7 @@ export default function App() {
         id: Date.now(),
         ad: fd.get('ad'),
         tur: fd.get('tur'),
-        yil: fd.get('yil'),
+        yil: fd.get('yil'), // Tarih bilgisi buradan geliyor
         bilgi: fd.get('bilgi'),
         koordinat: secilenNokta,
         adres,
@@ -170,7 +170,8 @@ export default function App() {
           ) : (
             <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
               <span style={{fontSize: '0.8rem', fontWeight: 'bold'}}>{currentUser.adSoyad}</span>
-              <button onClick={() => setCurrentUser(null)} style={logoutBtn}>Çıkış</button>
+              {/* ÇIKIŞ BUTONU DÜZELTİLDİ: ARTIK MAP'E DÖNER */}
+              <button onClick={() => { setCurrentUser(null); setActiveTab('map'); }} style={logoutBtn}>Çıkış</button>
             </div>
           )}
         </div>
@@ -213,7 +214,7 @@ export default function App() {
               {secilenNokta && <Marker longitude={secilenNokta.lng} latitude={secilenNokta.lat} color="#ef4444" />}
             </Map>
 
-            {/* ARAMA (BURADAYIM!) */}
+            {/* ARAMA */}
             <div style={{ position: 'absolute', top: 20, left: 20, width: '320px', zIndex: 10 }}>
               <input type="text" placeholder="Yapı veya semt ara..." value={aramaMetni} onChange={e => setAramaMetni(e.target.value)} style={searchInput} />
               {oneriler.length > 0 && (
@@ -230,7 +231,7 @@ export default function App() {
               )}
             </div>
 
-            {/* FİLTRELER (BURADAYIM!) */}
+            {/* FİLTRELER */}
             <div style={filterPanel}>
               <div style={{fontSize: '0.7rem', fontWeight: '800', color: '#94a3b8', marginBottom: '10px'}}>KOLEKSİYON</div>
               {Object.keys(YAPI_KATALOGU).map(t => (
@@ -247,7 +248,7 @@ export default function App() {
           <div style={contentPage}>
             <h2 style={{color: '#1e40af', marginBottom: '30px'}}>Yönetim Paneli</h2>
             
-            <h3 style={sectionTitle}>Bekleyen Başvurular</h3>
+            <h3 style={sectionTitle}>Bekleyen Üye Başvuruları</h3>
             <div style={adminGrid}>
               {allUsers.filter(u => u.status === 'pending').map(u => (
                 <div key={u.id} style={adminCard}>
@@ -261,7 +262,31 @@ export default function App() {
                   </div>
                 </div>
               ))}
-              {allUsers.filter(u => u.status === 'pending').length === 0 && <p style={{color: '#94a3b8'}}>Bekleyen başvuru yok.</p>}
+              {allUsers.filter(u => u.status === 'pending').length === 0 && <p style={{color: '#94a3b8'}}>Bekleyen üye başvurusu yok.</p>}
+            </div>
+
+            <hr style={{margin: '40px 0', border: 'none', borderTop: '1px solid #e2e8f0'}} />
+
+            {/* YAPI ONAYLAMA PANELİ BURAYA EKLENDİ */}
+            <h3 style={sectionTitle}>Onay Bekleyen Yapılar</h3>
+            <div style={adminGrid}>
+              {pendingStructures.map(s => (
+                <div key={s.id} style={adminCard}>
+                  <p style={{margin: '0 0 5px 0', fontWeight: 'bold'}}>{s.ad}</p>
+                  <p style={{fontSize: '0.7rem', color: '#666'}}>{s.tur} - Ekleyen: {s.ekleyen}</p>
+                  <button 
+                    onClick={() => {
+                      setAllStructures([...allStructures, {...s, status: 'active'}]);
+                      setPendingStructures(pendingStructures.filter(x => x.id !== s.id));
+                      alert("Yapı haritaya eklendi!");
+                    }} 
+                    style={approveBtnMini}
+                  >
+                    Yapıyı Onayla
+                  </button>
+                </div>
+              ))}
+              {pendingStructures.length === 0 && <p style={{color: '#94a3b8'}}>Onay bekleyen yapı yok.</p>}
             </div>
 
             <hr style={{margin: '40px 0', border: 'none', borderTop: '1px solid #e2e8f0'}} />
@@ -324,13 +349,15 @@ export default function App() {
               </form>
             )}
 
-{modalMode === 'addStructure' && (
+            {modalMode === 'addStructure' && (
               <form onSubmit={handleAddStructure} style={{width: '100%'}}>
                 <h3>Yeni Yapı Ekle</h3>
                 <input required name="ad" placeholder="Yapı Adı" style={fIn} />
                 <select name="tur" style={fIn}>
                   {Object.keys(YAPI_KATALOGU).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
+                {/* TARİH ALANI BURAYA EKLENDİ */}
+                <input name="yil" placeholder="Yapım Yılı / Dönemi (Örn: 1720 / Lale Devri)" style={fIn} />
                 <textarea required name="bilgi" placeholder="Yapı Hakkında Detaylı Bilgi" style={{...fIn, height: '100px'}} />
                 <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Yapı Fotoğrafları:</label>
                 <input required name="fotos" type="file" multiple style={fIn} />
@@ -341,13 +368,13 @@ export default function App() {
             {modalMode === 'viewDetail' && detayYapi && (
               <div style={{width: '100%'}}>
                 <h2 style={{margin: '0 0 10px 0', color: '#1e40af'}}>{detayYapi.ad}</h2>
-                <p style={{fontSize: '0.9rem', color: '#666', marginBottom: '15px'}}>{detayYapi.tur}</p>
+                <p style={{fontSize: '0.9rem', color: '#666', marginBottom: '5px'}}>{detayYapi.tur} {detayYapi.yil && `• ${detayYapi.yil}`}</p>
                 <p style={{lineHeight: '1.6', fontSize: '0.95rem'}}>{detayYapi.bilgi}</p>
                 <div style={{display: 'flex', gap: '10px', overflowX: 'auto', padding: '10px 0'}}>
                   {detayYapi.fotolar?.map((img, i) => <img key={i} src={img} style={{height: '120px', borderRadius: '8px'}} alt="Yapı" />)}
                 </div>
-                {/* STREET VIEW BUTONU */}
-                <button onClick={() => window.open(`https://www.google.com/maps?q&layer=c&cbll=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} style={streetBtn}>
+                {/* STREET VIEW BUTONU DÜZELTİLDİ */}
+                <button onClick={() => window.open(`http://googleusercontent.com/maps.google.com/search?api=1&query=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} style={streetBtn}>
                   📷 Sokak Görünümü (Street View)
                 </button>
               </div>
@@ -366,7 +393,7 @@ export default function App() {
         <div style={infoBox}>
           <p style={{fontSize: '0.75rem', color: '#64748b', marginBottom: '12px'}}>{adres}</p>
           <div style={{display: 'flex', gap: '10px'}}>
-            <button onClick={() => window.open(`https://www.google.com/maps?q&layer=c&cbll=${secilenNokta.lat},${secilenNokta.lng}`, '_blank')} style={{...miniBtn, background: '#334155'}}>📷 Sokak</button>
+            <button onClick={() => window.open(`http://googleusercontent.com/maps.google.com/search?api=1&query=${secilenNokta.lat},${secilenNokta.lng}`, '_blank')} style={{...miniBtn, background: '#334155'}}>📷 Sokak</button>
             <button disabled={!currentUser || currentUser.status === 'pending'} onClick={() => setModalMode('addStructure')} style={{...miniBtn, background: (!currentUser || currentUser.status === 'pending') ? '#ccc' : '#10b981'}}>
               {!currentUser ? "Giriş Yapın" : "➕ Yapı Ekle"}
             </button>
@@ -377,7 +404,7 @@ export default function App() {
   );
 }
 
-// --- STİLLER (KUSURSUZ HİZALAMA İÇİN) ---
+// --- STİLLER ---
 const navStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 30px', background: 'white', borderBottom: '1px solid #e2e8f0', zIndex: 100 };
 const menuItem = (active) => ({ background: 'transparent', border: 'none', color: active ? '#1e40af' : '#64748b', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem' });
 const loginBtn = { padding: '8px 20px', borderRadius: '10px', border: '1px solid #1e40af', color: '#1e40af', background: 'white', fontWeight: 'bold', cursor: 'pointer' };
