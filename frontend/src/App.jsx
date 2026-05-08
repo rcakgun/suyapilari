@@ -148,6 +148,7 @@ export default function App() {
         koordinat: secilenNokta,
         adres,
         ekleyen: currentUser.email,
+        ekleyenAd: currentUser.adSoyad,
         fotolar: base64Photos,
         status: 'pending'
       };
@@ -567,9 +568,9 @@ export default function App() {
                 </div>
 
                 {/* DENETİM İZİ (KİM GÜNCELLEDİ?) */}
-                {(detayYapi.lastUpdatedBy || detayYapi.ekleyen) && (
+                {(detayYapi.lastUpdatedBy || detayYapi.ekleyenAd || detayYapi.ekleyen) && (
                   <div style={{marginTop: '15px', padding: '10px', background: '#f8fafc', borderRadius: '8px', borderLeft: '3px solid #10b981', fontSize: '0.75rem', color: '#475569'}}>
-                    <strong>Son Güncelleyen:</strong> {detayYapi.lastUpdatedBy || detayYapi.ekleyen} <br/>
+                    <strong>Son Güncelleyen:</strong> {detayYapi.lastUpdatedBy || detayYapi.ekleyenAd || (detayYapi.ekleyen ? detayYapi.ekleyen.split('@')[0] : 'Gizli Kullanıcı')} <br/>
                     <strong>Tarih:</strong> {detayYapi.lastUpdatedDate || "Orijinal Kayıt"}
                   </div>
                 )}
