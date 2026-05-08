@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Map, Marker } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { db } from './firebase'; 
-import { collection, addDoc, getDocs, updateDoc, doc, query, where } from "firebase/firestore";
+import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, where } from "firebase/firestore";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -29,6 +29,7 @@ export default function App() {
   const [secilenNokta, setSecilenNokta] = useState(null);
   const [adres, setAdres] = useState("");
   const [aramaMetni, setAramaMetni] = useState("");
+  const [listArama, setListArama] = useState("");
   const [oneriler, setOneriler] = useState([]);
   const [detayYapi, setDetayYapi] = useState(null);
   const [zoomPhoto, setZoomPhoto] = useState(null); 
@@ -123,6 +124,16 @@ export default function App() {
       setAllUsers(prev => prev.map(u => u.id === userId ? {...u, status: 'active'} : u));
       alert("Üye aktif edildi!");
     } catch (error) { alert(error.message); }
+  };
+
+  // --- ÜYEYİ SİL (ADMİN) ---
+  const handleDeleteUser = async (userId) => {
+    if (!window.confirm("Bu üyeyi silmek istediğinize emin misiniz? (Eklediği yapılar haritada kalmaya devam edecek)")) return;
+    try {
+      await deleteDoc(doc(db, "users", userId));
+      setAllUsers(prev => prev.filter(u => u.id !== userId));
+      alert("Üye başarıyla silindi!");
+    } catch (error) { alert("Hata: " + error.message); }
   };
 
   // --- YAPI EKLEME (FIREBASE VE YENİ ALANLAR) ---
@@ -252,6 +263,7 @@ export default function App() {
         <div style={{ fontWeight: '800', fontSize: '1.2rem', color: '#1e40af' }}>SU MİMARİSİ <span style={{fontWeight: '300'}}>ARŞİVİ</span></div>
         <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
           <button onClick={() => setActiveTab('map')} style={menuItem(activeTab === 'map')}>Harita</button>
+          <button onClick={() => setActiveTab('list')} style={menuItem(activeTab === 'list')}>Yapı Listesi</button>
           {currentUser && <button onClick={() => setActiveTab('profile')} style={menuItem(activeTab === 'profile')}>Profilim</button>}
           {currentUser?.role === 'admin' && <button onClick={() => setActiveTab('admin')} style={{...menuItem(activeTab === 'admin'), color: '#dc2626'}}>Yönetim</button>}
           <div style={{ height: '20px', width: '1px', background: '#ddd' }}></div>
@@ -349,7 +361,10 @@ export default function App() {
                     <div style={{flex: 1}}>
                       <p style={{margin: '0 0 4px 0', fontWeight: 'bold', fontSize: '0.85rem'}}>{u.adSoyad}</p>
                       <p style={{fontSize: '0.7rem', color: '#666', margin: '0 0 8px 0'}}>{u.email} <br/> No: {u.ogrenciNo}</p>
+                      <div style={{display: 'flex', gap: '5px'}}>
                       <button onClick={() => handleApproveUser(u.id)} style={approveBtnMini}>Onayla</button>
+                      <button onClick={() => handleDeleteUser(u.id)} style={{...approveBtnMini, background: '#ef4444'}}>Sil</button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -403,7 +418,10 @@ export default function App() {
                 <div key={u.id} style={{...adminCard, opacity: 0.85, padding: '12px'}}>
                    <p style={{margin: '0 0 4px 0', fontWeight: 'bold', fontSize: '0.85rem'}}>{u.adSoyad}</p>
                    <p style={{fontSize: '0.7rem', color: '#64748b'}}>{u.email} - No: {u.ogrenciNo}</p>
-                   <span style={{fontSize: '0.6rem', color: '#10b981', fontWeight: 'bold'}}>● AKTİF ÜYE</span>
+                   <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px'}}>
+                    <span style={{fontSize: '0.6rem', color: '#10b981', fontWeight: 'bold'}}>● AKTİF ÜYE</span>
+                    <button onClick={() => handleDeleteUser(u.id)} style={{...approveBtnMini, background: '#ef4444', width: 'auto', padding: '4px 10px'}}>Sil</button>
+                    </div>  
                 </div>
               ))}
             </div>
@@ -422,6 +440,59 @@ export default function App() {
                   </span>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+{activeTab === 'list' && (
+          <div style={contentPage}>
+            <h2 style={{color: '#1e40af', marginBottom: '20px'}}>Tüm Yapılar Listesi</h2>
+            
+            {/* Arama ve Kategori Filtreleme */}
+            <div style={{display: 'flex', gap: '15px', marginBottom: '30px', flexWrap: 'wrap', alignItems: 'center'}}>
+              <input 
+                type="text" 
+                placeholder="Yapı adı ile ara..." 
+                value={listArama} 
+                onChange={e => setListArama(e.target.value)} 
+                style={{...fIn, width: '300px', marginBottom: 0}} 
+              />
+              <div style={{display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '5px'}}>
+                {Object.keys(YAPI_KATALOGU).map(t => (
+                  <label key={t} style={{display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem', cursor: 'pointer', background: activeFiltreler.includes(t) ? '#1e40af' : '#f1f5f9', color: activeFiltreler.includes(t) ? 'white' : '#334155', padding: '8px 12px', borderRadius: '20px', whiteSpace: 'nowrap'}}>
+                    <input type="checkbox" checked={activeFiltreler.includes(t)} onChange={() => setAktifFiltreler(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])} style={{display: 'none'}} />
+                    {YAPI_KATALOGU[t]} {t}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Yapı Kartları */}
+            <div style={adminGrid}>
+              {allStructures
+                .filter(s => activeFiltreler.includes(s.tur))
+                .filter(s => s.ad.toLowerCase().includes(listArama.toLowerCase()))
+                .map(s => (
+                  <div key={s.id} style={adminCard}>
+                    <h4 style={{margin: '0 0 8px 0', color: '#1e40af'}}>{s.ad}</h4>
+                    <p style={{fontSize: '0.8rem', color: '#666', margin: '0 0 10px 0'}}>{YAPI_KATALOGU[s.tur]} {s.tur} {s.yil && `• ${s.yil}`}</p>
+                    {s.fotolar && s.fotolar.length > 0 && (
+                      <img src={s.fotolar[0]} onClick={() => setZoomPhoto(s.fotolar[0])} style={{width: '100%', height: '140px', objectFit: 'cover', borderRadius: '8px', cursor: 'zoom-in', marginBottom: '10px'}} alt={s.ad} />
+                    )}
+                    <button 
+                      onClick={() => {
+                        setViewState({ longitude: s.koordinat.lng, latitude: s.koordinat.lat, zoom: 17 });
+                        setSecilenNokta({ lng: s.koordinat.lng, lat: s.koordinat.lat });
+                        setActiveTab('map');
+                      }} 
+                      style={{...actionBtn, padding: '10px', fontSize: '0.85rem'}}
+                    >
+                      📍 Haritada Git
+                    </button>
+                  </div>
+              ))}
+              {allStructures.filter(s => activeFiltreler.includes(s.tur) && s.ad.toLowerCase().includes(listArama.toLowerCase())).length === 0 && (
+                <p style={{color: '#94a3b8', width: '100%'}}>Arama kriterlerinize uygun yapı bulunamadı.</p>
+              )}
             </div>
           </div>
         )}
