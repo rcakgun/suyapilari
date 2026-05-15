@@ -60,7 +60,9 @@ export default function App() {
   const [detayYapi, setDetayYapi] = useState(null);
   const [zoomPhoto, setZoomPhoto] = useState(null); 
 
+  const [isFiltreAcik, setIsFiltreAcik] = useState(true);
   const mapRef = useRef(null);
+  
 
   // --- FIREBASE: VERI CEKME ---
   useEffect(() => {
@@ -197,6 +199,12 @@ export default function App() {
   const handleAddStructure = (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    // ÇAKIŞMA KONTROLÜ (MADDE 8)
+    const girilenAd = fd.get('ad').trim().toLowerCase();
+    const isimCakismasi = allStructures.concat(pendingStructures).some(
+      s => s.ad.toLowerCase() === girilenAd
+    );
+    if (isimCakismasi) return alert("Bu isimde bir yapı sistemde zaten mevcut veya onay bekliyor! Lütfen farklı bir isim girin.");
     const files = Array.from(e.target.fotos.files); 
     const photoPromises = files.map(file => compressImage(file));
 
@@ -398,10 +406,15 @@ export default function App() {
               )}
             </div>
 
-            {/* FİLTRELER */}
+            {/* FİLTRELER (Açılır Kapanır - Madde 4) */}
             <div style={filterPanel}>
-              <div style={{fontSize: '0.7rem', fontWeight: '800', color: '#94a3b8', marginBottom: '10px'}}>KOLEKSİYON</div>
-              {Object.keys(YAPI_KATALOGU).map(t => (
+              <div 
+                onClick={() => setIsFiltreAcik(!isFiltreAcik)}
+                style={{fontSize: '0.7rem', fontWeight: '800', color: '#94a3b8', marginBottom: isFiltreAcik ? '10px' : '0', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}
+              >
+                KOLEKSİYON <span style={{fontSize: '0.6rem'}}>{isFiltreAcik ? '▼' : '▲'}</span>
+              </div>
+              {isFiltreAcik && Object.keys(YAPI_KATALOGU).map(t => (
                 <label key={t} style={filterItem}>
                   <input type="checkbox" checked={activeFiltreler.includes(t)} onChange={() => setAktifFiltreler(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])} />
                   <span>{YAPI_KATALOGU[t]} {t}</span>
