@@ -264,7 +264,7 @@ export default function App() {
       s => s.ad.toLowerCase() === girilenAd
     );
     if (isimCakismasi) return alert("Bu isimde bir yapı sistemde zaten mevcut veya onay bekliyor! Lütfen farklı bir isim girin.");
-    const files = Array.from(e.target.fotos.files); 
+    
     const photoPromises = secilenDosyalar.map(dosya => 
       compressImage(dosya.file).then(b64 => ({
         data: b64,
@@ -305,7 +305,7 @@ export default function App() {
   const handleEditStructure = (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const files = Array.from(e.target.fotos.files); 
+    
     
     const applyUpdate = async (base64Photos) => {
       const now = new Date();
@@ -945,7 +945,7 @@ export default function App() {
                 </div>
 
                 <label style={{fontSize: '0.75rem', color: '#666', display: 'block', marginBottom: '5px', marginTop: '15px'}}>Fotoğrafları Seçin (Çoklu seçebilirsiniz):</label>
-                <input required type="file" multiple style={fIn} onChange={(e) => setSecilenDosyalar(Array.from(e.target.files).map(f => ({ file: f, yil: '', ay: '', gun: '', tur: '', kaynak: '' })))} />
+                <input type="file" multiple style={fIn} onChange={(e) => setSecilenDosyalar(Array.from(e.target.files).map(f => ({ file: f, yil: '', ay: '', gun: '', tur: '', kaynak: '' })))} />
                 
                 {secilenDosyalar.length > 0 && (
                   <div style={{marginBottom: '15px', maxHeight: '250px', overflowY: 'auto', padding: '10px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0'}}>
