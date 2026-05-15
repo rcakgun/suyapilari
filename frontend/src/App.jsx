@@ -77,11 +77,33 @@ export default function App() {
   const [isFiltreAcik, setIsFiltreAcik] = useState(true);
   const mapRef = useRef(null);
   
+// --- BİLDİRİM MOTORU (MADDE 1 VE 2 İÇİN ALTYAPI) ---
+  const sendNotification = async (targetEmail, text) => {
+    if (!targetEmail) return;
+    try {
+      const q = query(collection(db, "users"), where("email", "==", targetEmail));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const userDoc = snap.docs[0];
+        const notifs = userDoc.data().notifications || [];
+        const yeniBildirim = { id: Date.now(), text, read: false, date: new Date().toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) };
+        notifs.unshift(yeniBildirim);
+        await updateDoc(doc(db, "users", userDoc.id), { notifications: notifs });
+      }
+    } catch (err) { console.error("Bildirim hatası:", err); }
+  };
+
+  const okunmamisBildirimSayisi = currentUser?.notifications?.filter(n => !n.read).length || 0;
 
   // --- FIREBASE: VERI CEKME ---
   useEffect(() => {
     const verileriGetir = async () => {
       try {
+        // Kullanıcının kendi güncel profilini (ve bildirimlerini) sürekli taze tut
+        if (currentUser) {
+          const cUserDoc = await getDoc(doc(db, "users", currentUser.id));
+          if (cUserDoc.exists()) setCurrentUser({ id: currentUser.id, ...cUserDoc.data() });
+        }
        // Kullanıcıları Çek (SADECE ADMİN İSE)
         if (currentUser && currentUser.role === 'admin') {
           const userSnapshot = await getDocs(collection(db, "users"));
@@ -192,9 +214,13 @@ export default function App() {
   const handleApproveUser = async (userId) => {
     try {
       const userRef = doc(db, "users", userId);
-      await updateDoc(userRef, { status: 'active' });
-      setAllUsers(prev => prev.map(u => u.id === userId ? {...u, status: 'active'} : u));
-      alert("Üye aktif edildi!");
+      const u = allUsers.find(x => x.id === userId);
+      const notifs = u.notifications || [];
+      notifs.unshift({ id: Date.now(), text: "Tebrikler! Üyeliğiniz onaylandı, artık haritaya yapı ekleyebilirsiniz.", read: false, date: new Date().toLocaleDateString('tr-TR') });
+      
+      await updateDoc(userRef, { status: 'active', notifications: notifs });
+      setAllUsers(prev => prev.map(user => user.id === userId ? {...user, status: 'active', notifications: notifs} : user));
+      alert("Üye aktif edildi ve bildirim gönderildi!");
     } catch (error) { alert(error.message); }
   };
 
@@ -359,6 +385,10 @@ export default function App() {
     }
 
     const updatedStructure = { ...detayYapi, likes, dislikes };
+    // Yeni bildirim kodu
+    if (type === 'like' && detayYapi.ekleyen && detayYapi.ekleyen !== currentUser.email && !detayYapi.likes?.includes(userId)) {
+      await sendNotification(detayYapi.ekleyen, `"${detayYapi.ad}" isimli yapınız ${currentUser.adSoyad} tarafından beğenildi! 👍`);
+    }
     try {
       await updateDoc(doc(db, "structures", detayYapi.id), { likes, dislikes });
       setDetayYapi(updatedStructure);
@@ -387,6 +417,9 @@ export default function App() {
       setDetayYapi(updatedStructure);
       setAllStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
       e.target.reset();
+      if (detayYapi.ekleyen && detayYapi.ekleyen !== currentUser.email) {
+        await sendNotification(detayYapi.ekleyen, `"${detayYapi.ad}" yapınıza ${currentUser.adSoyad} yeni bir yorum bıraktı.`);
+      }
     } catch (error) { console.error("Yorum hatası:", error); }
   };
 
@@ -455,7 +488,14 @@ export default function App() {
         <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
           <button onClick={() => setActiveTab('map')} style={menuItem(activeTab === 'map')}>Harita</button>
           <button onClick={() => setActiveTab('list')} style={menuItem(activeTab === 'list')}>Yapı Listesi</button>
-          {currentUser && <button onClick={() => setActiveTab('profile')} style={menuItem(activeTab === 'profile')}>Profilim</button>}
+          {currentUser && (
+            <button onClick={() => setActiveTab('profile')} style={{...menuItem(activeTab === 'profile'), position: 'relative'}}>
+              Profilim
+              {okunmamisBildirimSayisi > 0 && (
+                <span style={{position: 'absolute', top: '-8px', right: '-12px', background: '#ef4444', color: 'white', fontSize: '0.65rem', padding: '2px 6px', borderRadius: '10px', fontWeight: 'bold'}}>{okunmamisBildirimSayisi}</span>
+              )}
+            </button>
+          )}
           {currentUser?.role === 'admin' && <button onClick={() => setActiveTab('admin')} style={{...menuItem(activeTab === 'admin'), color: '#dc2626'}}>Yönetim</button>}
           <div style={{ height: '20px', width: '1px', background: '#ddd' }}></div>
           {!currentUser ? (
@@ -510,7 +550,7 @@ export default function App() {
             </Map>
 
             {/* ARAMA */}
-            <div style={{ position: 'absolute', top: 20, left: 20, width: '320px', zIndex: 10 }}>
+            <div style={{ position: 'absolute', top: 15, left: 15, width: 'calc(100% - 30px)', maxWidth: '320px', zIndex: 10 }}>
               <input type="text" placeholder="Yapı veya semt ara..." value={aramaMetni} onChange={e => setAramaMetni(e.target.value)} style={searchInput} />
               {oneriler.length > 0 && (
                 <div style={searchList}>
@@ -593,6 +633,7 @@ export default function App() {
                         await updateDoc(doc(db, "structures", s.id), { status: 'active' });
                         setAllStructures([...allStructures, {...s, status: 'active'}]);
                         setPendingStructures(pendingStructures.filter(x => x.id !== s.id));
+                        await sendNotification(s.ekleyen, `Tebrikler! "${s.ad}" isimli yapı başvurunuz onaylandı ve haritaya eklendi.`);
                         alert("Yapı haritaya eklendi!");
                       }} 
                       style={{...approveBtnMini, flex: 1}}
@@ -626,19 +667,61 @@ export default function App() {
           </div>
         )}
 
-        {activeTab === 'profile' && (
+        {activeTab === 'profile' && currentUser && (
           <div style={contentPage}>
-            <h2>Eklediğim Yapılar</h2>
-            <div style={adminGrid}>
-              {allStructures.concat(pendingStructures).filter(s => s.ekleyen === currentUser.email).map(s => (
-                <div key={s.id} style={adminCard}>
-                  <h4>{s.ad}</h4>
-                  <span style={{fontSize: '0.7rem', padding: '5px 10px', borderRadius: '8px', background: s.status === 'active' ? '#dcfce7' : '#fef9c3'}}>
-                    {s.status === 'active' ? 'YAYINDA' : 'ONAY BEKLİYOR'}
-                  </span>
+            
+            <div style={{display: 'flex', flexWrap: 'wrap', gap: '30px', alignItems: 'flex-start'}}>
+              {/* BİLDİRİMLER ALANI */}
+              <div style={{flex: 1, minWidth: '300px', background: 'white', padding: '20px', borderRadius: '15px', border: '1px solid #e2e8f0', boxShadow: '0 4px 15px rgba(0,0,0,0.03)'}}>
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px'}}>
+                  <h3 style={{margin: 0, color: '#1e40af'}}>🔔 Bildirimlerim</h3>
+                  {okunmamisBildirimSayisi > 0 && (
+                    <button 
+                      onClick={async () => {
+                        const updatedNotifs = currentUser.notifications.map(n => ({...n, read: true}));
+                        await updateDoc(doc(db, "users", currentUser.id), { notifications: updatedNotifs });
+                        setCurrentUser({...currentUser, notifications: updatedNotifs});
+                      }} 
+                      style={{background: 'transparent', border: 'none', color: '#10b981', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 'bold'}}
+                    >
+                      Hepsini Okundu İşaretle ✓
+                    </button>
+                  )}
                 </div>
-              ))}
+                
+                <div style={{display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto'}}>
+                  {!currentUser.notifications || currentUser.notifications.length === 0 ? (
+                    <p style={{color: '#94a3b8', fontSize: '0.85rem'}}>Henüz hiç bildiriminiz yok.</p>
+                  ) : (
+                    currentUser.notifications.map(n => (
+                      <div key={n.id} style={{padding: '12px', background: n.read ? '#f8fafc' : '#eff6ff', borderRadius: '10px', borderLeft: n.read ? 'none' : '4px solid #3b82f6'}}>
+                        <p style={{margin: '0 0 5px 0', fontSize: '0.85rem', color: '#334155'}}>{n.text}</p>
+                        <span style={{fontSize: '0.65rem', color: '#94a3b8'}}>{n.date}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* EKLEDİĞİM YAPILAR ALANI */}
+              <div style={{flex: 2, minWidth: '300px'}}>
+                <h2 style={{marginTop: 0, color: '#1e40af'}}>Eklediğim Yapılar</h2>
+                <div style={adminGrid}>
+                  {allStructures.concat(pendingStructures).filter(s => s.ekleyen === currentUser.email).map(s => (
+                    <div key={s.id} style={adminCard}>
+                      <h4 style={{margin: '0 0 10px 0'}}>{s.ad}</h4>
+                      <span style={{fontSize: '0.7rem', padding: '5px 10px', borderRadius: '8px', background: s.status === 'active' ? '#dcfce7' : '#fef9c3', fontWeight: 'bold'}}>
+                        {s.status === 'active' ? '✅ YAYINDA' : '⏳ ONAY BEKLİYOR'}
+                      </span>
+                    </div>
+                  ))}
+                  {allStructures.concat(pendingStructures).filter(s => s.ekleyen === currentUser.email).length === 0 && (
+                    <p style={{color: '#94a3b8', fontSize: '0.85rem'}}>Henüz sisteme bir yapı eklemediniz.</p>
+                  )}
+                </div>
+              </div>
             </div>
+
           </div>
         )}
 {activeTab === 'list' && (
@@ -1016,7 +1099,7 @@ export default function App() {
 }
 
 // --- STİLLER ---
-const navStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 30px', background: 'white', borderBottom: '1px solid #e2e8f0', zIndex: 100 };
+const navStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px', background: 'white', borderBottom: '1px solid #e2e8f0', zIndex: 100, flexWrap: 'wrap', gap: '10px' };
 const menuItem = (active) => ({ background: 'transparent', border: 'none', color: active ? '#1e40af' : '#64748b', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem' });
 const loginBtn = { padding: '8px 20px', borderRadius: '10px', border: '1px solid #1e40af', color: '#1e40af', background: 'white', fontWeight: 'bold', cursor: 'pointer' };
 const registerBtn = { padding: '8px 20px', borderRadius: '10px', border: 'none', background: '#1e40af', color: 'white', fontWeight: 'bold', cursor: 'pointer' };
@@ -1024,20 +1107,20 @@ const logoutBtn = { background: '#fee2e2', color: '#dc2626', border: 'none', pad
 const searchInput = { width: '100%', padding: '15px', borderRadius: '15px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', outline: 'none', boxSizing: 'border-box' };
 const searchList = { background: 'white', marginTop: '5px', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', overflow: 'hidden' };
 const searchItem = { padding: '12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' };
-const filterPanel = { position: 'absolute', top: 20, right: 20, background: 'white', padding: '20px', borderRadius: '20px', boxShadow: '0 4px 30px rgba(0,0,0,0.05)', width: '160px' };
+const filterPanel = { position: 'absolute', top: 80, right: 15, background: 'white', padding: '15px', borderRadius: '20px', boxShadow: '0 4px 30px rgba(0,0,0,0.05)', width: '140px', zIndex: 10 };
 const filterItem = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#475569', marginBottom: '8px', cursor: 'pointer' };
 const modalOverlay = { position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 };
-const modalBox = { background: 'white', padding: '40px', borderRadius: '30px', width: '450px', maxHeight: '90vh', overflowY: 'auto', position: 'relative', boxShadow: '0 25px 50px rgba(0,0,0,0.15)', boxSizing: 'border-box' };
+const modalBox = { background: 'white', padding: '25px', borderRadius: '20px', width: '95%', maxWidth: '450px', maxHeight: '90vh', overflowY: 'auto', position: 'relative', boxShadow: '0 25px 50px rgba(0,0,0,0.15)', boxSizing: 'border-box' };
 const fIn = { width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '15px', outline: 'none', boxSizing: 'border-box' };
 const actionBtn = { width: '100%', padding: '15px', background: '#1e40af', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', boxSizing: 'border-box' };
 const closeBtn = { position: 'absolute', top: 20, right: 20, border: 'none', background: '#f1f5f9', width: '30px', height: '30px', borderRadius: '50%', cursor: 'pointer', zIndex: 10 };
-const contentPage = { padding: '50px', overflowY: 'auto', height: 'calc(100vh - 70px)', boxSizing: 'border-box' };
+const contentPage = { padding: '20px', overflowY: 'auto', height: 'calc(100vh - 70px)', boxSizing: 'border-box', maxWidth: '1200px', margin: '0 auto' };
 const adminGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' };
 const adminCard = { background: 'white', padding: '15px', borderRadius: '15px', border: '1px solid #e2e8f0', boxShadow: '0 2px 10px rgba(0,0,0,0.02)' };
 const compactImg = { width: '70px', height: '70px', objectFit: 'cover', borderRadius: '8px', cursor: 'zoom-in' };
 const approveBtnMini = { padding: '8px 15px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.75rem', width: '100%' };
 const sectionTitle = { fontSize: '1rem', color: '#94a3b8', fontWeight: '800', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '1px' };
-const infoBox = { position: 'absolute', bottom: 30, left: 20, background: 'white', padding: '25px', borderRadius: '25px', boxShadow: '0 20px 50px rgba(0,0,0,0.1)', width: '320px' };
+const infoBox = { position: 'absolute', bottom: 20, left: '5%', background: 'white', padding: '20px', borderRadius: '20px', boxShadow: '0 20px 50px rgba(0,0,0,0.1)', width: '90%', maxWidth: '320px', boxSizing: 'border-box', zIndex: 10 };
 const miniBtn = { flex: 1, padding: '12px', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' };
 const streetBtn = { width: '100%', padding: '15px', background: '#334155', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', marginTop: '15px', cursor: 'pointer' };
 const checkTitle = { fontSize: '0.8rem', color: '#666', display: 'block', marginBottom: '8px', fontWeight: 'bold' };
