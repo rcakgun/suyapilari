@@ -15,6 +15,10 @@ const YAPI_KATALOGU = {
 const BOZULMA_DURUMLARI = ['İyi', 'Orta', 'Kötü'];
 const MALZEME_TURLERI = ['Taş', 'Tuğla', 'Ahşap', 'Mermer', 'Metal', 'Beton', 'Harç'];
 const BOZULMA_TURLERI = ['Çatlak', 'Kırık', 'Eksilme', 'Bitkilenme', 'Renk Değişimi', 'Kirlenme', 'Aşınma'];
+const FOTO_TURLERI = ['Genel', 'Detay', 'Rölöve'];
+const FOTO_YILLARI = Array.from({length: new Date().getFullYear() - 1849}, (_, i) => new Date().getFullYear() - i); // 1850'den günümüze
+const FOTO_AYLARI = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+const FOTO_GUNLERI = Array.from({length: 31}, (_, i) => i + 1);
 
 // --- GÜVENLİK VE PERFORMANS FONKSİYONLARI ---
 const compressImage = (file) => {
@@ -59,6 +63,8 @@ export default function App() {
   const [oneriler, setOneriler] = useState([]);
   const [detayYapi, setDetayYapi] = useState(null);
   const [zoomPhoto, setZoomPhoto] = useState(null); 
+  const [wikiBilgi, setWikiBilgi] = useState(null);
+  const [isSesliOkunuyor, setIsSesliOkunuyor] = useState(false);
 
   const [isFiltreAcik, setIsFiltreAcik] = useState(true);
   const mapRef = useRef(null);
@@ -221,7 +227,10 @@ export default function App() {
         adres,
         ekleyen: currentUser.email,
         ekleyenAd: currentUser.adSoyad,
-        fotolar: base64Photos,
+        fotolar: base64Photos.map(b64 => ({ 
+          data: b64, 
+          meta: { yil: fd.get('fotoYil'), ay: fd.get('fotoAy'), gun: fd.get('fotoGun'), tur: fd.get('fotoTur'), kaynak: fd.get('fotoKaynak') } 
+        })),
         status: 'pending'
       };
 
@@ -261,7 +270,11 @@ export default function App() {
       };
 
       if (base64Photos.length > 0) {
-        updatedStructure.fotolar = [...(detayYapi.fotolar || []), ...base64Photos];
+        const yeniFotolarMeta = base64Photos.map(b64 => ({ 
+          data: b64, 
+          meta: { yil: fd.get('fotoYil'), ay: fd.get('fotoAy'), gun: fd.get('fotoGun'), tur: fd.get('fotoTur'), kaynak: fd.get('fotoKaynak') } 
+        }));
+        updatedStructure.fotolar = [...(detayYapi.fotolar || []), ...yeniFotolarMeta];
       }
 
       try {
@@ -362,6 +375,50 @@ export default function App() {
       setAllStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
       e.target.reset();
     } catch (error) { console.error("Yorum hatası:", error); }
+  };
+
+  // --- DIŞ BAĞLANTILAR (MADDE 5 VE 6 - WIKIPEDIA VE SESLİ OKUMA) ---
+  useEffect(() => {
+    if (modalMode === 'viewDetail' && detayYapi) {
+      const fetchWiki = async () => {
+        try {
+          setWikiBilgi("Ansiklopedik bilgi aranıyor...");
+          // Wikipedia'dan sadece giriş kısmını (en fazla 4 cümle) çeken sorgu
+          // Wikipedia'dan yapının tüm detaylı giriş/tarihçe özetini çeken sorgu
+          const res = await fetch(`https://tr.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&titles=${encodeURIComponent(detayYapi.ad)}&explaintext=1&format=json&origin=*`);
+          const data = await res.json();
+          const pages = data.query.pages;
+          const pageId = Object.keys(pages)[0];
+          
+          if (pageId === "-1" || !pages[pageId].extract) {
+            setWikiBilgi("Wikipedia'da bu yapıya ait özet bulunamadı.");
+          } else {
+            setWikiBilgi(pages[pageId].extract);
+          }
+        } catch (e) {
+          setWikiBilgi("Bilgi çekilirken bir hata oluştu.");
+        }
+      };
+      fetchWiki();
+    } else {
+      setWikiBilgi(null);
+      window.speechSynthesis.cancel();
+      setIsSesliOkunuyor(false);
+    }
+  }, [modalMode, detayYapi]);
+
+  const handleSesliOku = (metin) => {
+    if (isSesliOkunuyor) {
+      window.speechSynthesis.cancel();
+      setIsSesliOkunuyor(false);
+    } else {
+      window.speechSynthesis.cancel(); // Çakışmaları önlemek için önce durdur
+      const u = new SpeechSynthesisUtterance(metin);
+      u.lang = 'tr-TR';
+      u.onend = () => setIsSesliOkunuyor(false);
+      window.speechSynthesis.speak(u);
+      setIsSesliOkunuyor(true);
+    }
   };
 
   // --- ARAMA ---
@@ -510,7 +567,7 @@ export default function App() {
                   {s.fotolar && s.fotolar.length > 0 && (
                     <div style={{display: 'flex', gap: '8px', overflowX: 'auto', padding: '10px 0', borderTop: '1px solid #f1f5f9'}}>
                       {s.fotolar.map((img, i) => (
-                        <img key={i} src={img} onClick={() => setZoomPhoto(img)} style={{height: '60px', borderRadius: '5px', cursor: 'zoom-in'}} alt="Yapı" />
+                        <img key={i} src={typeof img === 'string' ? img : img.data} onClick={() => setZoomPhoto(typeof img === 'string' ? img : img.data)} style={{height: '60px', borderRadius: '5px', cursor: 'zoom-in'}} alt="Yapı" />
                       ))}
                     </div>
                   )}
@@ -603,7 +660,7 @@ export default function App() {
                     <h4 style={{margin: '0 0 8px 0', color: '#1e40af'}}>{s.ad}</h4>
                     <p style={{fontSize: '0.8rem', color: '#666', margin: '0 0 10px 0'}}>{YAPI_KATALOGU[s.tur]} {s.tur} {s.yil && `• ${s.yil}`}</p>
                     {s.fotolar && s.fotolar.length > 0 && (
-                      <img src={s.fotolar[0]} onClick={() => setZoomPhoto(s.fotolar[0])} style={{width: '100%', height: '140px', objectFit: 'cover', borderRadius: '8px', cursor: 'zoom-in', marginBottom: '10px'}} alt={s.ad} />
+                      <img src={typeof s.fotolar[0] === 'string' ? s.fotolar[0] : s.fotolar[0].data} onClick={() => setZoomPhoto(typeof s.fotolar[0] === 'string' ? s.fotolar[0] : s.fotolar[0].data)} style={{width: '100%', height: '140px', objectFit: 'cover', borderRadius: '8px', cursor: 'zoom-in', marginBottom: '10px'}} alt={s.ad} />
                     )}
                     <button 
                       onClick={() => {
@@ -629,7 +686,7 @@ export default function App() {
       {modalMode && (
         <div style={modalOverlay}>
           <div style={modalBox}>
-            <button onClick={() => setModalMode(null)} style={closeBtn}>✕</button>
+            <button onClick={() => { setModalMode(null); window.speechSynthesis.cancel(); setIsSesliOkunuyor(false); }} style={closeBtn}>✕</button>
             
             {modalMode === 'login' && (
           <div style={{width: '100%'}}>
@@ -682,6 +739,28 @@ export default function App() {
 
                 <input name="yil" placeholder="Yapım Yılı / Dönemi (Örn: 1720)" style={fIn} />
                 <textarea required name="bilgi" placeholder="Yapı Hakkında Detaylı Bilgi" style={{...fIn, height: '80px'}} />
+                <label style={{...checkTitle, marginTop: '15px'}}>Yüklenecek Fotoğrafların Bilgileri:</label>
+                <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
+                  <select name="fotoYil" style={{...fIn, flex: 1, marginBottom: 0}}>
+                    <option value="">Yıl Seçin</option>
+                    {FOTO_YILLARI.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                  <select name="fotoAy" style={{...fIn, flex: 1, marginBottom: 0}}>
+                    <option value="">Ay Seçin</option>
+                    {FOTO_AYLARI.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                  <select name="fotoGun" style={{...fIn, flex: 1, marginBottom: 0}}>
+                    <option value="">Gün Seçin</option>
+                    {FOTO_GUNLERI.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </div>
+                <div style={{display: 'flex', gap: '10px', marginBottom: '15px'}}>
+                  <select name="fotoTur" style={{...fIn, flex: 1, marginBottom: 0}}>
+                    <option value="">Fotoğraf Türü</option>
+                    {FOTO_TURLERI.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <input name="fotoKaynak" placeholder="Foto. Kaynağı (Kişi/Kurum)" style={{...fIn, flex: 1, marginBottom: 0}} />
+                </div>
                 <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Yapı Fotoğrafları:</label>
                 <input required name="fotos" type="file" multiple style={fIn} />
                 <button type="submit" style={actionBtn}>Onaya Gönder</button>
@@ -730,7 +809,7 @@ export default function App() {
                 <div style={{display: 'flex', gap: '8px', overflowX: 'auto', marginBottom: '15px'}}>
                   {detayYapi.fotolar?.map((img, i) => (
                     <div key={i} style={{position: 'relative', display: 'inline-block'}}>
-                      <img src={img} style={{height: '60px', borderRadius: '5px', objectFit: 'cover'}} alt="Yapı" />
+                      <img src={typeof img === 'string' ? img : img.data} style={{height: '60px', borderRadius: '5px', objectFit: 'cover'}} alt="Yapı" />
                       {currentUser?.role === 'admin' && (
                         <button type="button" onClick={() => handleDeletePhoto(i)} style={{position: 'absolute', top: '-5px', right: '-5px', background: 'red', color: 'white', borderRadius: '50%', border: 'none', width: '20px', height: '20px', cursor: 'pointer', fontSize: '10px'}}>✕</button>
                       )}
@@ -738,6 +817,29 @@ export default function App() {
                   ))}
                 </div>
 
+                <label style={{...checkTitle, marginTop: '15px'}}>Yüklenecek Yeni Fotoğrafların Bilgileri:</label>
+                <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
+                  <select name="fotoYil" style={{...fIn, flex: 1, marginBottom: 0}}>
+                    <option value="">Yıl Seçin</option>
+                    {FOTO_YILLARI.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                  <select name="fotoAy" style={{...fIn, flex: 1, marginBottom: 0}}>
+                    <option value="">Ay Seçin</option>
+                    {FOTO_AYLARI.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                  <select name="fotoGun" style={{...fIn, flex: 1, marginBottom: 0}}>
+                    <option value="">Gün Seçin</option>
+                    {FOTO_GUNLERI.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </div>
+                <div style={{display: 'flex', gap: '10px', marginBottom: '15px'}}>
+                  <select name="fotoTur" style={{...fIn, flex: 1, marginBottom: 0}}>
+                    <option value="">Fotoğraf Türü</option>
+                    {FOTO_TURLERI.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <input name="fotoKaynak" placeholder="Foto. Kaynağı (Kişi/Kurum)" style={{...fIn, flex: 1, marginBottom: 0}} />
+                </div>
+                
                 <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Yeni Fotoğraflar Ekle (İsteğe Bağlı):</label>
                 <input name="fotos" type="file" multiple style={fIn} />
                 <button type="submit" style={actionBtn}>Güncellemeyi Kaydet</button>
@@ -758,11 +860,38 @@ export default function App() {
                 </div>
 
                 <p style={{lineHeight: '1.6', fontSize: '0.95rem', maxHeight: '150px', overflowY: 'auto'}}>{detayYapi.bilgi}</p>
+                {/* WIKIPEDIA BİLGİ KUTUSU VE SESLİ OKUMA (MADDE 5 VE 6) */}
+                <div style={{background: '#f8fafc', padding: '15px', borderRadius: '12px', marginBottom: '15px', border: '1px solid #e2e8f0'}}>
+                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
+                    <strong style={{fontSize: '0.8rem', color: '#1e40af'}}>🌐 Wikipedia Özeti</strong>
+                    {wikiBilgi && !wikiBilgi.includes("aranıyor...") && !wikiBilgi.includes("bulunamadı") && (
+                      <button onClick={() => handleSesliOku(wikiBilgi)} style={{background: isSesliOkunuyor ? '#ef4444' : '#10b981', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '8px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 'bold', display: 'flex', gap: '5px'}}>
+                        {isSesliOkunuyor ? '⏹️ Durdur' : '🔊 Dinle'}
+                      </button>
+                    )}
+                  </div>
+                  <p style={{margin: 0, fontSize: '0.85rem', color: '#475569', lineHeight: '1.6', maxHeight: '180px', overflowY: 'auto', paddingRight: '5px'}}>{wikiBilgi}</p>
+                </div>
                 
                 {/* GALERİ */}
-                <div style={{display: 'flex', gap: '10px', overflowX: 'auto', padding: '10px 0', borderBottom: '1px solid #eee'}}>
-                  {detayYapi.fotolar?.map((img, i) => <img key={i} src={img} onClick={() => setZoomPhoto(img)} style={{height: '100px', borderRadius: '8px', cursor: 'zoom-in'}} alt="Yapı" />)}
-                </div>
+                <div style={{display: 'flex', gap: '15px', overflowX: 'auto', padding: '10px 0', borderBottom: '1px solid #eee'}}>
+  {detayYapi.fotolar?.map((imgObj, i) => {
+    const isObj = typeof imgObj === 'object' && imgObj !== null;
+    const imgSrc = isObj ? imgObj.data : imgObj;
+    const meta = isObj ? imgObj.meta : null;
+    return (
+      <div key={i} style={{minWidth: '120px', maxWidth: '200px'}}>
+        <img src={imgSrc} onClick={() => setZoomPhoto(imgSrc)} style={{height: '100px', width: '100%', objectFit: 'cover', borderRadius: '8px', cursor: 'zoom-in'}} alt="Yapı" />
+        {meta && (meta.yil || meta.tur || meta.kaynak) && (
+          <div style={{fontSize: '0.65rem', color: '#64748b', marginTop: '5px', lineHeight: '1.3'}}>
+            {meta.gun} {meta.ay} {meta.yil} {meta.tur && `• ${meta.tur}`} <br/>
+            {meta.kaynak && `© ${meta.kaynak}`}
+          </div>
+        )}
+      </div>
+    );
+  })}
+</div>
 
                 {/* DENETİM İZİ (KİM GÜNCELLEDİ?) */}
                 {(detayYapi.lastUpdatedBy || detayYapi.ekleyenAd || detayYapi.ekleyen) && (
