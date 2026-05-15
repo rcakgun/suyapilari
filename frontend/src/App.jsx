@@ -315,6 +315,55 @@ export default function App() {
     } catch (error) { alert("Hata: " + error.message); }
   };
 
+// --- BEĞENİ VE YORUM SİSTEMİ (MADDE 9 ve 10) ---
+  const handleLikeDislike = async (type) => {
+    if (!currentUser) return alert("Beğeni bırakmak için giriş yapmalısınız.");
+    
+    const userId = currentUser.email;
+    let likes = detayYapi.likes || [];
+    let dislikes = detayYapi.dislikes || [];
+
+    // Tıklama mantığı: Zaten beğendiyse geri al, beğenmediyse beğen. (Aynı anda hem like hem dislike olamaz)
+    if (type === 'like') {
+      if (likes.includes(userId)) likes = likes.filter(id => id !== userId);
+      else { likes.push(userId); dislikes = dislikes.filter(id => id !== userId); }
+    } else {
+      if (dislikes.includes(userId)) dislikes = dislikes.filter(id => id !== userId);
+      else { dislikes.push(userId); likes = likes.filter(id => id !== userId); }
+    }
+
+    const updatedStructure = { ...detayYapi, likes, dislikes };
+    try {
+      await updateDoc(doc(db, "structures", detayYapi.id), { likes, dislikes });
+      setDetayYapi(updatedStructure);
+      setAllStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
+    } catch (error) { console.error("Beğeni hatası:", error); }
+  };
+
+  const handleAddComment = async (e) => {
+    e.preventDefault();
+    if (!currentUser) return alert("Yorum yapmak için giriş yapmalısınız.");
+    
+    const text = e.target.comment.value.trim();
+    if (!text) return;
+
+    const newComment = {
+      user: currentUser.adSoyad,
+      text,
+      date: new Date().toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' })
+    };
+
+    const comments = [...(detayYapi.comments || []), newComment];
+    const updatedStructure = { ...detayYapi, comments };
+
+    try {
+      await updateDoc(doc(db, "structures", detayYapi.id), { comments });
+      setDetayYapi(updatedStructure);
+      setAllStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
+      e.target.reset();
+    } catch (error) { console.error("Yorum hatası:", error); }
+  };
+
   // --- ARAMA ---
   useEffect(() => {
     if (aramaMetni.length < 3) return;
@@ -722,6 +771,44 @@ export default function App() {
                     <strong>Tarih:</strong> {detayYapi.lastUpdatedDate || "Orijinal Kayıt"}
                   </div>
                 )}
+
+{/* BEĞENİ BUTONLARI (MADDE 9) */}
+                <div style={{display: 'flex', gap: '15px', marginTop: '15px', padding: '10px 0', borderTop: '1px solid #eee', borderBottom: '1px solid #eee'}}>
+                  <button onClick={() => handleLikeDislike('like')} style={{background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', color: (detayYapi.likes || []).includes(currentUser?.email) ? '#10b981' : '#64748b'}}>
+                    <span style={{fontSize: '1.2rem'}}>👍</span> <strong>{(detayYapi.likes || []).length}</strong> Beğeni
+                  </button>
+                  <button onClick={() => handleLikeDislike('dislike')} style={{background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', color: (detayYapi.dislikes || []).includes(currentUser?.email) ? '#ef4444' : '#64748b'}}>
+                    <span style={{fontSize: '1.2rem'}}>👎</span> <strong>{(detayYapi.dislikes || []).length}</strong> Beğenmeme
+                  </button>
+                </div>
+
+                {/* YORUMLAR (MADDE 10) */}
+                <div style={{marginTop: '15px'}}>
+                  <h4 style={{fontSize: '0.9rem', color: '#1e40af', marginBottom: '10px'}}>Yorumlar ({(detayYapi.comments || []).length})</h4>
+                  <div style={{maxHeight: '150px', overflowY: 'auto', marginBottom: '10px', display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                    {(detayYapi.comments || []).length === 0 ? (
+                      <p style={{fontSize: '0.8rem', color: '#94a3b8', margin: 0}}>Henüz yorum yapılmamış. İlk yorumu siz yapın!</p>
+                    ) : (
+                      detayYapi.comments.map((c, i) => (
+                        <div key={i} style={{background: '#f8fafc', padding: '10px', borderRadius: '10px', fontSize: '0.8rem'}}>
+                          <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '4px'}}>
+                            <strong style={{color: '#334155'}}>{c.user}</strong>
+                            <span style={{color: '#94a3b8', fontSize: '0.7rem'}}>{c.date}</span>
+                          </div>
+                          <p style={{margin: 0, color: '#475569'}}>{c.text}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  
+                  {/* Yorum Ekleme Formu */}
+                  {currentUser && currentUser.status === 'active' && (
+                    <form onSubmit={handleAddComment} style={{display: 'flex', gap: '10px'}}>
+                      <input name="comment" required placeholder="Yorumunuzu yazın..." style={{...fIn, marginBottom: 0, padding: '10px'}} />
+                      <button type="submit" style={{...actionBtn, width: 'auto', padding: '10px 20px'}}>Gönder</button>
+                    </form>
+                  )}
+                </div>
 
                 <div style={{display: 'flex', gap: '10px', marginTop: '15px'}}>
                   <button onClick={() => window.open(`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${detayYapi.koordinat.lat},${detayYapi.koordinat.lng}`, '_blank')} style={{...streetBtn, marginTop: 0, flex: 1}}>
