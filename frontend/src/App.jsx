@@ -4,6 +4,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { db } from './firebase'; 
 import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, where, setDoc, getDoc } from "firebase/firestore";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "firebase/auth";
+import emailjs from '@emailjs/browser';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -77,7 +78,7 @@ export default function App() {
   const [isFiltreAcik, setIsFiltreAcik] = useState(true);
   const mapRef = useRef(null);
   
-// --- BİLDİRİM MOTORU (MADDE 1 VE 2 İÇİN ALTYAPI) ---
+// --- BİLDİRİM MOTORU (MADDE 1 VE 2 İÇİN ALTYAPI VE EMAILJS) ---
   const sendNotification = async (targetEmail, text) => {
     if (!targetEmail) return;
     try {
@@ -89,6 +90,24 @@ export default function App() {
         const yeniBildirim = { id: Date.now(), text, read: false, date: new Date().toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) };
         notifs.unshift(yeniBildirim);
         await updateDoc(doc(db, "users", userDoc.id), { notifications: notifs });
+
+        // --- GERÇEK E-POSTA GÖNDERİMİ (EMAILJS) ---
+        // DİKKAT: Aşağıdaki 'YOUR_SERVICE_ID', 'YOUR_TEMPLATE_ID' ve 'YOUR_PUBLIC_KEY' 
+        // kısımlarını EmailJS sitesinden aldığın kendi kodlarınla değiştirmelisin!
+        emailjs.send(
+          'service_wlhqc1g', 
+          'template_w3n9kba', 
+          {
+            to_email: targetEmail,
+            message: text,
+          },
+          'DFaGLDIjAzCgDno8V'
+        ).then(() => {
+          console.log("E-posta başarıyla gönderildi!");
+        }).catch((err) => {
+          console.error("E-posta gönderilemedi:", err);
+        });
+
       }
     } catch (err) { console.error("Bildirim hatası:", err); }
   };
