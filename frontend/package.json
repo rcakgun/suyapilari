@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@emailjs/browser": "^4.4.1",
     "@pbe/react-yandex-maps": "^1.2.5",
     "cesium": "^1.141.0",
     "firebase": "^12.13.0",
