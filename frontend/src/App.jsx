@@ -65,6 +65,14 @@ export default function App() {
   const [zoomPhoto, setZoomPhoto] = useState(null); 
   const [wikiBilgi, setWikiBilgi] = useState(null);
   const [isSesliOkunuyor, setIsSesliOkunuyor] = useState(false);
+  const [secilenDosyalar, setSecilenDosyalar] = useState([]);
+
+  // Her fotoğrafın kendi bilgisini güncelleyen fonksiyon
+  const updateDosyaMeta = (index, field, value) => {
+    const yeni = [...secilenDosyalar];
+    yeni[index][field] = value;
+    setSecilenDosyalar(yeni);
+  };
 
   const [isFiltreAcik, setIsFiltreAcik] = useState(true);
   const mapRef = useRef(null);
@@ -212,9 +220,14 @@ export default function App() {
     );
     if (isimCakismasi) return alert("Bu isimde bir yapı sistemde zaten mevcut veya onay bekliyor! Lütfen farklı bir isim girin.");
     const files = Array.from(e.target.fotos.files); 
-    const photoPromises = files.map(file => compressImage(file));
+    const photoPromises = secilenDosyalar.map(dosya => 
+      compressImage(dosya.file).then(b64 => ({
+        data: b64,
+        meta: { yil: dosya.yil, ay: dosya.ay, gun: dosya.gun, tur: dosya.tur, kaynak: dosya.kaynak }
+      }))
+    );
 
-    Promise.all(photoPromises).then(async (base64Photos) => {
+    Promise.all(photoPromises).then(async (base64PhotosWithMeta) => {
       const newS = {
         ad: fd.get('ad'),
         tur: fd.get('tur'),
@@ -227,10 +240,7 @@ export default function App() {
         adres,
         ekleyen: currentUser.email,
         ekleyenAd: currentUser.adSoyad,
-        fotolar: base64Photos.map(b64 => ({ 
-          data: b64, 
-          meta: { yil: fd.get('fotoYil'), ay: fd.get('fotoAy'), gun: fd.get('fotoGun'), tur: fd.get('fotoTur'), kaynak: fd.get('fotoKaynak') } 
-        })),
+        fotolar: base64PhotosWithMeta,
         status: 'pending'
       };
 
@@ -270,11 +280,7 @@ export default function App() {
       };
 
       if (base64Photos.length > 0) {
-        const yeniFotolarMeta = base64Photos.map(b64 => ({ 
-          data: b64, 
-          meta: { yil: fd.get('fotoYil'), ay: fd.get('fotoAy'), gun: fd.get('fotoGun'), tur: fd.get('fotoTur'), kaynak: fd.get('fotoKaynak') } 
-        }));
-        updatedStructure.fotolar = [...(detayYapi.fotolar || []), ...yeniFotolarMeta];
+        updatedStructure.fotolar = [...(detayYapi.fotolar || []), ...base64Photos];
       }
 
       try {
@@ -283,19 +289,26 @@ export default function App() {
         setPendingStructures(prev => prev.map(s => s.id === detayYapi.id ? updatedStructure : s));
         setDetayYapi(updatedStructure);
         setModalMode('viewDetail');
+        setSecilenDosyalar([]); // Başarılı olunca listeyi temizle
         alert("Yapı bilgileri başarıyla güncellendi!");
       } catch (err) {
         console.error("Güncelleme hatası: ", err);
       }
     };
 
-    if (files.length > 0 && files[0].name !== "") {
-      const photoPromises = files.map(file => compressImage(file));
+    if (secilenDosyalar.length > 0) {
+      const photoPromises = secilenDosyalar.map(dosya => 
+        compressImage(dosya.file).then(b64 => ({
+          data: b64,
+          meta: { yil: dosya.yil, ay: dosya.ay, gun: dosya.gun, tur: dosya.tur, kaynak: dosya.kaynak }
+        }))
+      );
+      
       Promise.all(photoPromises).then(applyUpdate);
     } else {
       applyUpdate([]);
     }
-  };
+    };
 
   // --- FOTOĞRAF SİLME (ADMİN İÇİN) ---
   const handleDeletePhoto = async (indexToRemove) => {
@@ -385,14 +398,15 @@ export default function App() {
           setWikiBilgi("Ansiklopedik bilgi aranıyor...");
           // Wikipedia'dan sadece giriş kısmını (en fazla 4 cümle) çeken sorgu
           // Wikipedia'dan yapının tüm detaylı giriş/tarihçe özetini çeken sorgu
-          const res = await fetch(`https://tr.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&titles=${encodeURIComponent(detayYapi.ad)}&explaintext=1&format=json&origin=*`);
+          // Wikipedia arama motoru (Büyük/küçük harf sorununu ve ufak isim farklılıklarını tolere eder)
+          const res = await fetch(`https://tr.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&generator=search&gsrsearch=${encodeURIComponent(detayYapi.ad)}&gsrlimit=1&explaintext=1&format=json&origin=*`);
           const data = await res.json();
-          const pages = data.query.pages;
-          const pageId = Object.keys(pages)[0];
           
-          if (pageId === "-1" || !pages[pageId].extract) {
+          if (!data.query || !data.query.pages) {
             setWikiBilgi("Wikipedia'da bu yapıya ait özet bulunamadı.");
           } else {
+            const pages = data.query.pages;
+            const pageId = Object.keys(pages)[0];
             setWikiBilgi(pages[pageId].extract);
           }
         } catch (e) {
@@ -686,7 +700,8 @@ export default function App() {
       {modalMode && (
         <div style={modalOverlay}>
           <div style={modalBox}>
-            <button onClick={() => { setModalMode(null); window.speechSynthesis.cancel(); setIsSesliOkunuyor(false); }} style={closeBtn}>✕</button>
+            {/* Bunu bul ve değiştir: */}
+<button onClick={() => { setModalMode(null); window.speechSynthesis.cancel(); setIsSesliOkunuyor(false); setSecilenDosyalar([]); }} style={closeBtn}>✕</button>
             
             {modalMode === 'login' && (
           <div style={{width: '100%'}}>
@@ -739,30 +754,40 @@ export default function App() {
 
                 <input name="yil" placeholder="Yapım Yılı / Dönemi (Örn: 1720)" style={fIn} />
                 <textarea required name="bilgi" placeholder="Yapı Hakkında Detaylı Bilgi" style={{...fIn, height: '80px'}} />
-                <label style={{...checkTitle, marginTop: '15px'}}>Yüklenecek Fotoğrafların Bilgileri:</label>
-                <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
-                  <select name="fotoYil" style={{...fIn, flex: 1, marginBottom: 0}}>
-                    <option value="">Yıl Seçin</option>
-                    {FOTO_YILLARI.map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
-                  <select name="fotoAy" style={{...fIn, flex: 1, marginBottom: 0}}>
-                    <option value="">Ay Seçin</option>
-                    {FOTO_AYLARI.map(a => <option key={a} value={a}>{a}</option>)}
-                  </select>
-                  <select name="fotoGun" style={{...fIn, flex: 1, marginBottom: 0}}>
-                    <option value="">Gün Seçin</option>
-                    {FOTO_GUNLERI.map(g => <option key={g} value={g}>{g}</option>)}
-                  </select>
-                </div>
-                <div style={{display: 'flex', gap: '10px', marginBottom: '15px'}}>
-                  <select name="fotoTur" style={{...fIn, flex: 1, marginBottom: 0}}>
-                    <option value="">Fotoğraf Türü</option>
-                    {FOTO_TURLERI.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                  <input name="fotoKaynak" placeholder="Foto. Kaynağı (Kişi/Kurum)" style={{...fIn, flex: 1, marginBottom: 0}} />
-                </div>
-                <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Yapı Fotoğrafları:</label>
-                <input required name="fotos" type="file" multiple style={fIn} />
+                <label style={{fontSize: '0.75rem', color: '#666', display: 'block', marginBottom: '5px', marginTop: '15px'}}>Fotoğrafları Seçin (Çoklu seçebilirsiniz):</label>
+                <input required type="file" multiple style={fIn} onChange={(e) => setSecilenDosyalar(Array.from(e.target.files).map(f => ({ file: f, yil: '', ay: '', gun: '', tur: '', kaynak: '' })))} />
+                
+                {secilenDosyalar.length > 0 && (
+                  <div style={{marginBottom: '15px', maxHeight: '250px', overflowY: 'auto', padding: '10px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0'}}>
+                    <label style={{...checkTitle, marginBottom: '10px'}}>Seçtiğiniz Her Fotoğraf İçin Detayları Girin:</label>
+                    {secilenDosyalar.map((dosya, i) => (
+                      <div key={i} style={{marginBottom: '10px', padding: '10px', background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)'}}>
+                        <p style={{fontSize: '0.75rem', fontWeight: 'bold', margin: '0 0 8px 0', color: '#1e40af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>📷 {dosya.file.name}</p>
+                        <div style={{display: 'flex', gap: '5px', marginBottom: '5px'}}>
+                          <select value={dosya.yil} onChange={e => updateDosyaMeta(i, 'yil', e.target.value)} style={{...fIn, flex: 1, marginBottom: 0, padding: '6px', fontSize: '0.7rem'}}>
+                            <option value="">Yıl</option>
+                            {FOTO_YILLARI.map(y => <option key={y} value={y}>{y}</option>)}
+                          </select>
+                          <select value={dosya.ay} onChange={e => updateDosyaMeta(i, 'ay', e.target.value)} style={{...fIn, flex: 1, marginBottom: 0, padding: '6px', fontSize: '0.7rem'}}>
+                            <option value="">Ay</option>
+                            {FOTO_AYLARI.map(a => <option key={a} value={a}>{a}</option>)}
+                          </select>
+                          <select value={dosya.gun} onChange={e => updateDosyaMeta(i, 'gun', e.target.value)} style={{...fIn, flex: 1, marginBottom: 0, padding: '6px', fontSize: '0.7rem'}}>
+                            <option value="">Gün</option>
+                            {FOTO_GUNLERI.map(g => <option key={g} value={g}>{g}</option>)}
+                          </select>
+                        </div>
+                        <div style={{display: 'flex', gap: '5px'}}>
+                          <select value={dosya.tur} onChange={e => updateDosyaMeta(i, 'tur', e.target.value)} style={{...fIn, flex: 1, marginBottom: 0, padding: '6px', fontSize: '0.7rem'}}>
+                            <option value="">Tür</option>
+                            {FOTO_TURLERI.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                          <input value={dosya.kaynak} onChange={e => updateDosyaMeta(i, 'kaynak', e.target.value)} placeholder="Kaynak" style={{...fIn, flex: 1, marginBottom: 0, padding: '6px', fontSize: '0.7rem'}} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <button type="submit" style={actionBtn}>Onaya Gönder</button>
               </form>
             )}
@@ -817,31 +842,40 @@ export default function App() {
                   ))}
                 </div>
 
-                <label style={{...checkTitle, marginTop: '15px'}}>Yüklenecek Yeni Fotoğrafların Bilgileri:</label>
-                <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
-                  <select name="fotoYil" style={{...fIn, flex: 1, marginBottom: 0}}>
-                    <option value="">Yıl Seçin</option>
-                    {FOTO_YILLARI.map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
-                  <select name="fotoAy" style={{...fIn, flex: 1, marginBottom: 0}}>
-                    <option value="">Ay Seçin</option>
-                    {FOTO_AYLARI.map(a => <option key={a} value={a}>{a}</option>)}
-                  </select>
-                  <select name="fotoGun" style={{...fIn, flex: 1, marginBottom: 0}}>
-                    <option value="">Gün Seçin</option>
-                    {FOTO_GUNLERI.map(g => <option key={g} value={g}>{g}</option>)}
-                  </select>
-                </div>
-                <div style={{display: 'flex', gap: '10px', marginBottom: '15px'}}>
-                  <select name="fotoTur" style={{...fIn, flex: 1, marginBottom: 0}}>
-                    <option value="">Fotoğraf Türü</option>
-                    {FOTO_TURLERI.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                  <input name="fotoKaynak" placeholder="Foto. Kaynağı (Kişi/Kurum)" style={{...fIn, flex: 1, marginBottom: 0}} />
-                </div>
+                <label style={{fontSize: '0.75rem', color: '#666', display: 'block', marginBottom: '5px', marginTop: '15px'}}>Fotoğrafları Seçin (Çoklu seçebilirsiniz):</label>
+                <input required type="file" multiple style={fIn} onChange={(e) => setSecilenDosyalar(Array.from(e.target.files).map(f => ({ file: f, yil: '', ay: '', gun: '', tur: '', kaynak: '' })))} />
                 
-                <label style={{fontSize: '0.7rem', color: '#666', display: 'block', marginBottom: '5px'}}>Yeni Fotoğraflar Ekle (İsteğe Bağlı):</label>
-                <input name="fotos" type="file" multiple style={fIn} />
+                {secilenDosyalar.length > 0 && (
+                  <div style={{marginBottom: '15px', maxHeight: '250px', overflowY: 'auto', padding: '10px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0'}}>
+                    <label style={{...checkTitle, marginBottom: '10px'}}>Seçtiğiniz Her Fotoğraf İçin Detayları Girin:</label>
+                    {secilenDosyalar.map((dosya, i) => (
+                      <div key={i} style={{marginBottom: '10px', padding: '10px', background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)'}}>
+                        <p style={{fontSize: '0.75rem', fontWeight: 'bold', margin: '0 0 8px 0', color: '#1e40af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>📷 {dosya.file.name}</p>
+                        <div style={{display: 'flex', gap: '5px', marginBottom: '5px'}}>
+                          <select value={dosya.yil} onChange={e => updateDosyaMeta(i, 'yil', e.target.value)} style={{...fIn, flex: 1, marginBottom: 0, padding: '6px', fontSize: '0.7rem'}}>
+                            <option value="">Yıl</option>
+                            {FOTO_YILLARI.map(y => <option key={y} value={y}>{y}</option>)}
+                          </select>
+                          <select value={dosya.ay} onChange={e => updateDosyaMeta(i, 'ay', e.target.value)} style={{...fIn, flex: 1, marginBottom: 0, padding: '6px', fontSize: '0.7rem'}}>
+                            <option value="">Ay</option>
+                            {FOTO_AYLARI.map(a => <option key={a} value={a}>{a}</option>)}
+                          </select>
+                          <select value={dosya.gun} onChange={e => updateDosyaMeta(i, 'gun', e.target.value)} style={{...fIn, flex: 1, marginBottom: 0, padding: '6px', fontSize: '0.7rem'}}>
+                            <option value="">Gün</option>
+                            {FOTO_GUNLERI.map(g => <option key={g} value={g}>{g}</option>)}
+                          </select>
+                        </div>
+                        <div style={{display: 'flex', gap: '5px'}}>
+                          <select value={dosya.tur} onChange={e => updateDosyaMeta(i, 'tur', e.target.value)} style={{...fIn, flex: 1, marginBottom: 0, padding: '6px', fontSize: '0.7rem'}}>
+                            <option value="">Tür</option>
+                            {FOTO_TURLERI.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                          <input value={dosya.kaynak} onChange={e => updateDosyaMeta(i, 'kaynak', e.target.value)} placeholder="Kaynak" style={{...fIn, flex: 1, marginBottom: 0, padding: '6px', fontSize: '0.7rem'}} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <button type="submit" style={actionBtn}>Güncellemeyi Kaydet</button>
               </form>
             )}
