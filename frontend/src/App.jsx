@@ -239,7 +239,11 @@ export default function App() {
       
       await updateDoc(userRef, { status: 'active', notifications: notifs });
       setAllUsers(prev => prev.map(user => user.id === userId ? {...user, status: 'active', notifications: notifs} : user));
-      alert("Üye aktif edildi ve bildirim gönderildi!");
+      
+      // GERÇEK E-POSTA GÖNDERİMİ BURAYA EKLENDİ
+      await sendNotification(u.email, "Tebrikler! Üyeliğiniz onaylandı, artık haritaya yapı ekleyebilirsiniz.");
+      
+      alert("Üye aktif edildi, bildirim ve e-posta gönderildi!");
     } catch (error) { alert(error.message); }
   };
 
